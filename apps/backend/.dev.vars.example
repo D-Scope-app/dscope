@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local development. Never commit real values.
+INTERNAL_RUNNER_TOKEN=replace_with_a_long_random_runner_token
+INTERNAL_ADMIN_TOKEN=replace_with_a_different_long_random_admin_token
+REWARDS_ENABLED=false
+RUNNER_API_BASE_URL=http://127.0.0.1:8787
+AZTEC_NODE_URL=http://127.0.0.1:8080
+AZTEC_FROM_ALIAS=accounts:my-wallet

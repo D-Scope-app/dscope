@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-17",
+  "assets": {
+    "directory": "./public",
+    "run_worker_first": [
+      "/mvp/health",
+      "/mvp/config",
+      "/mvp/surveys*",
+      "/mvp/verification*",
+      "/mvp/reference*",
+      "/mvp/participant*",
+      "/mvp/creator*",
+      "/internal/*",
+      "/verification*",
+      "/verify-real*",
+      "/surveys*",
+      "/reports*",
+    ],
+  },
+  "routes": [
+    {
+      "pattern": "app.dscope.app",
+      "custom_domain": true,
+    },
+  ],
+  "observability": {
+    "enabled": true,
+  },
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "REWARDS_ENABLED": "false",
+    "ZKPASSPORT_VERIFIER_PUBLIC_URL": "https://verify.dscope.app",
+  },
+  "d1_databases": [
+    {
+      "binding": "dscope_db",
+      "database_name": "dscope-db",
+      "database_id": "03dc8988-749b-4adb-b355-e64ed07faaaa",
+    },
+  ],
+}

@@ -1,0 +1,52 @@
+{
+  "name": "backend",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "frontend:dev": "vite --config vite.config.ts",
+    "frontend:build": "vite build --config vite.config.ts",
+    "test:containment": "tsx scripts/public-launch-containment-smoke.ts",
+    "test:trusted-zkpassport": "tsx scripts/trusted-zkpassport-smoke.ts",
+    "test:verification-rate-limit": "tsx scripts/verification-rate-limit-smoke.ts",
+    "zkpassport-verifier": "node scripts/zkpassport-verifier-service.mjs",
+    "d1:migrate:remote": "wrangler d1 migrations apply dscope-db --remote",
+    "deploy:remote": "wrangler deploy",
+    "runner:once": "tsx scripts/local-mvp-runner-once.ts",
+    "runner:once:remote": "RUNNER_API_BASE_URL=https://app.dscope.app tsx scripts/local-mvp-runner-once.ts",
+    "app:dev": "vite --config vite.app.config.ts",
+    "app:build": "vite build --config vite.app.config.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.17",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^4.2.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vite-plugin-node-polyfills": "^0.28.0",
+    "wrangler": "^4.76.0"
+  },
+  "dependencies": {
+    "@azguardwallet/aztec-wallet": "^4.1.0-rc.4",
+    "@azguardwallet/client": "^0.9.0",
+    "@aztec/accounts": "5.1.0",
+    "@aztec/aztec.js": "5.1.0",
+    "@aztec/wallet-sdk": "5.1.0",
+    "@aztec/wallets": "5.1.0",
+    "@zkpassport/sdk": "0.16.1",
+    "@zkpassport/ui": "0.16.1",
+    "clsx": "^2.1.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.15.0",
+    "tailwind-merge": "^3.5.0"
+  }
+}

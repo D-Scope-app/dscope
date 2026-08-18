@@ -1,0 +1,17 @@
+{
+  "name": "dscope",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privacy-preserving survey infrastructure built on Aztec.",
+  "scripts": {
+    "backend:install": "npm --prefix apps/backend ci",
+    "app:dev": "npm --prefix apps/backend run app:dev",
+    "app:build": "npm --prefix apps/backend run app:build",
+    "verifier:build": "npm --prefix apps/backend run frontend:build",
+    "build": "npm run verifier:build && npm run app:build",
+    "test:smoke": "npm --prefix apps/backend run test:trusted-zkpassport && npm --prefix apps/backend run test:containment && npm --prefix apps/backend run test:verification-rate-limit",
+    "test:static": "cd apps/backend && node scripts/security-hardening-static-smoke.mjs && node scripts/contract-time-runner-static-smoke.mjs",
+    "test": "npm run test:smoke && npm run test:static",
+    "worker:dry-run": "cd apps/backend && ./node_modules/.bin/wrangler deploy --dry-run"
+  }
+}

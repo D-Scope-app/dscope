@@ -1,0 +1,64 @@
+/node_modules
+/node_modules/
+# Dependencies
+**/node_modules/
+
+# Environment and secrets
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+**/.dev.vars
+**/.dev.vars.*
+!**/.dev.vars.example
+!**/.dev.vars.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Cloudflare local state
+**/.wrangler/
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Generated application builds
+apps/backend/public/mvp/
+**/dist/
+**/coverage/
+**/.vite/
+
+# Aztec and Noir build output
+**/target/
+**/cache/
+**/cache-zk/
+
+# Logs and temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+tmp/
+
+# Snapshots, archives and local copies
+_server_snapshots/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.bak
+
+# Local editor and OS files
+.vscode/
+**/.vscode/
+.DS_Store
+Thumbs.db
+/package-lock.json
+/apps/backend/public/verify-real/

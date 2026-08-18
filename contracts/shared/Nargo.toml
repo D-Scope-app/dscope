@@ -1,0 +1,6 @@
+[package]
+name = "shared"
+type = "lib"
+compiler_version = "*"
+
+[dependencies]

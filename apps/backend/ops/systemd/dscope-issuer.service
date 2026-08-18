@@ -1,0 +1,15 @@
+[Unit]
+Description=D-Scope MVP Issuer Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/dscope/backend
+Environment=PATH=/root/.aztec/current/bin:/root/.aztec/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/bin/bash -lc 'set -a; source /opt/dscope/backend/.env.testnet-runner; set +a; export ISSUER_HOST="${ISSUER_HOST:-127.0.0.1}"; export ISSUER_PORT="${ISSUER_PORT:-8790}"; exec /usr/bin/node /opt/dscope/backend/scripts/issuer-service.v1.mjs'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
