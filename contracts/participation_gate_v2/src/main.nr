@@ -75,11 +75,11 @@ pub contract ParticipationGateV2 {
         let existing_start_time = self.storage
             .survey_start_time_by_key
             .at(survey_key)
-            .read();
+            .read_unsafe();
         let existing_end_time = self.storage
             .survey_end_time_by_key
             .at(survey_key)
-            .read();
+            .read_unsafe();
 
         if existing_start_time == 0 {
             assert(existing_end_time == 0, "incomplete survey window");
