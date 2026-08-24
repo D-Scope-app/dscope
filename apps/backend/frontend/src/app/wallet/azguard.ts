@@ -629,13 +629,74 @@ function extractGrantedAccount(capabilities: unknown): string | null {
 }
 
 async function getWalletSdkChainInfo() {
-  const { Fr } = await import("@aztec/aztec.js/fields");
+  const [{ Fr }, createAztecNodeClient] = await Promise.all([
+    import("@aztec/aztec.js/fields"),
+    loadAztecNodeClientFactory(),
+  ]);
 
-  const l1ChainId = parseBigIntEnv("VITE_AZTEC_L1_CHAIN_ID", "11155111");
-  const rollupVersion = parseBigIntEnv(
-    "VITE_AZTEC_ROLLUP_VERSION",
-    "2787991301",
+  let l1ChainId = parseBigIntEnv(
+    "VITE_AZTEC_L1_CHAIN_ID",
+    "11155111",
   );
+  let rollupVersion = parseBigIntEnv(
+    "VITE_AZTEC_ROLLUP_VERSION",
+    "1821665230",
+  );
+
+  const nodeUrl = (
+    import.meta.env.VITE_AZTEC_NODE_URL ||
+    import.meta.env.PUBLIC_AZTEC_NODE_URL ||
+    "https://v5.testnet.rpc.aztec-labs.com"
+  ).toString();
+
+  const readBigInt = (value: unknown, fallback: bigint): bigint => {
+    try {
+      const normalized = normalizeString(value);
+      return normalized ? BigInt(normalized) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  if (createAztecNodeClient) {
+    try {
+      const nodeInfoRequest =
+        createAztecNodeClient(nodeUrl).getNodeInfo?.();
+
+      if (nodeInfoRequest) {
+        const nodeInfo = (await Promise.race([
+          nodeInfoRequest,
+          new Promise<never>((_, reject) => {
+            window.setTimeout(
+              () => reject(new Error("Aztec node info timeout")),
+              10_000,
+            );
+          }),
+        ])) as unknown as {
+          l1ChainId?: unknown;
+          rollupVersion?: unknown;
+          nodeVersion?: unknown;
+        };
+
+        l1ChainId = readBigInt(nodeInfo.l1ChainId, l1ChainId);
+        rollupVersion = readBigInt(
+          nodeInfo.rollupVersion,
+          rollupVersion,
+        );
+
+        console.info("[D-Scope] live Aztec chain info", {
+          nodeVersion: normalizeString(nodeInfo.nodeVersion),
+          l1ChainId: l1ChainId.toString(),
+          rollupVersion: rollupVersion.toString(),
+        });
+      }
+    } catch (error) {
+      console.warn(
+        "[D-Scope] Could not load live Aztec chain info; using configured fallback.",
+        error,
+      );
+    }
+  }
 
   const FrRuntime = Fr as unknown as {
     new (value: bigint | number | string): unknown;
