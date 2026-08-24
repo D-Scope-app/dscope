@@ -1,9 +1,9 @@
 import type { Screen, Survey } from "../model";
 import {
   badgeTone,
-  canParticipateInSurvey,
   effectiveSurveyStatus,
   formatTimeRemaining,
+  isSurveyOpenForDiscovery,
   surveyStatusLabel,
 } from "../model";
 import { Fact } from "../components/Primitives";
@@ -38,7 +38,7 @@ export function HomePage({
   setScreen: (screen: Screen) => void;
 }) {
   const activeSurveys = surveys.filter((survey) =>
-    canParticipateInSurvey(survey),
+    isSurveyOpenForDiscovery(survey),
   );
   const featuredSurveys = activeSurveys.slice(0, 4);
 
@@ -48,7 +48,7 @@ export function HomePage({
         <div className="hero-orbit" aria-hidden="true" />
         <div className="brand-signal-beam" aria-hidden="true" />
         <div className="home-copy">
-          <div className="eyebrow">D-Scope app</div>
+          <div className="eyebrow">D-Scope</div>
           <h1>Private research for verified audiences.</h1>
           <p>
             Launch privacy-aware research campaigns with verified eligibility,
@@ -207,7 +207,7 @@ function FeaturedSurveyCard({
         <Fact
           label="Time left"
           value={
-            canParticipateInSurvey(survey)
+            isSurveyOpenForDiscovery(survey)
               ? formatTimeRemaining(survey.schedule?.timeRemainingSeconds)
               : surveyStatusLabel(survey)
           }

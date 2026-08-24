@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 import type { Screen, Survey } from "../model";
 import {
   badgeTone,
-  canParticipateInSurvey,
   effectiveSurveyStatus,
   formatTimeRemaining,
+  isSurveyOpenForDiscovery,
   surveyStatusLabel,
 } from "../model";
 import { Fact } from "../components/Primitives";
@@ -56,8 +56,9 @@ export function ExplorePage({
 
   const counts = useMemo(
     () => ({
-      active: publicSurveys.filter((survey) => canParticipateInSurvey(survey))
-        .length,
+      active: publicSurveys.filter((survey) =>
+        isSurveyOpenForDiscovery(survey),
+      ).length,
       ended: publicSurveys.filter(
         (survey) => effectiveSurveyStatus(survey) === "ended",
       ).length,
@@ -75,7 +76,7 @@ export function ExplorePage({
     return publicSurveys.filter((survey) => {
       const matchesFilter =
         filter === "all" ||
-        (filter === "active" && canParticipateInSurvey(survey)) ||
+        (filter === "active" && isSurveyOpenForDiscovery(survey)) ||
         (filter === "ended" && effectiveSurveyStatus(survey) === "ended") ||
         (filter === "finalized" &&
           effectiveSurveyStatus(survey) === "finalized");
@@ -201,7 +202,7 @@ function CatalogSurveyRow({
   survey: Survey;
   onOpen: () => void;
 }) {
-  const canParticipate = canParticipateInSurvey(survey);
+  const surveyOpen = isSurveyOpenForDiscovery(survey);
 
   return (
     <article className="card catalog-row public-catalog-row">
@@ -246,11 +247,11 @@ function CatalogSurveyRow({
       </div>
       <div className="catalog-side">
         <button
-          className={canParticipate ? "primary-btn" : "secondary-btn"}
+          className={surveyOpen ? "primary-btn" : "secondary-btn"}
           type="button"
           onClick={onOpen}
         >
-          {canParticipate
+          {surveyOpen
             ? "Open survey"
             : effectiveSurveyStatus(survey) === "finalized"
               ? "View results"

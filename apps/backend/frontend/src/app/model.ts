@@ -532,6 +532,12 @@ export function effectiveSurveyStatus(survey: Survey): string {
   );
 }
 
+export function isSurveyOpenForDiscovery(survey: Survey): boolean {
+  if (effectiveSurveyStatus(survey) !== "active") return false;
+  if (!survey.lifecycle) return true;
+  return survey.lifecycle.hasStarted && !survey.lifecycle.hasEnded;
+}
+
 export function canParticipateInSurvey(survey: Survey): boolean {
   if (survey.lifecycle) return survey.lifecycle.canParticipate === true;
   return effectiveSurveyStatus(survey) === "active";

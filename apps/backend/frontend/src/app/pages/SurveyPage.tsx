@@ -27,10 +27,10 @@ import type {
   WalletConnection,
 } from "../model";
 import {
-  canParticipateInSurvey,
   canViewSurveyResults,
   effectiveSurveyStatus,
   formatTimeRemaining,
+  isSurveyOpenForDiscovery,
   starterQuestions,
   shortHash,
   surveyStatusLabel,
@@ -245,7 +245,7 @@ export function SurveyPage({
     survey.source !== "backend"
       ? true
       : (participantView?.availability.canParticipate ??
-        canParticipateInSurvey(survey));
+        isSurveyOpenForDiscovery(survey));
   const surveyEnded = effectiveSurveyStatus(survey) === "ended";
   const alreadyParticipated =
     participantView?.participant.hasParticipated === true ||
