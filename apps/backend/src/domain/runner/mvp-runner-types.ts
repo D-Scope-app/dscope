@@ -44,7 +44,7 @@ export type FinalizeSurveyMvpJobPayload = {
   policyHash: string;
   participationGateAddress: string;
   dscopeCoreAddress: string;
-  rewardVaultAddress: string;
+  rewardVaultAddress?: string | null;
   rewardPoolAmount: string;
   claimDeadline: string;
   finalizedAt: string;
@@ -59,7 +59,7 @@ export type SyncSurveyMvpJobPayload = {
   surveyId: string;
   surveyKey: string;
   dscopeCoreAddress: string;
-  rewardVaultAddress?: string;
+  rewardVaultAddress?: string | null;
   participationGateAddress?: string;
 };
 

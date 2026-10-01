@@ -43,12 +43,30 @@ function normalizeMode(value: string | undefined): MvpRunnerChainMode {
 export function getDefaultMvpRunnerChainConfig(): MvpRunnerChainConfig {
   const projectRoot = env("D_SCOPE_PROJECT_ROOT") ?? DEFAULT_PROJECT_ROOT;
 
+  const mode = normalizeMode(env("MVP_CHAIN_MODE"));
+  const surveyFactoryAddress = env("SURVEY_FACTORY_ADDRESS");
+  const sharedParticipationGateAddress = env("PARTICIPATION_GATE_ADDRESS");
+
+  if (mode === "sdk" && !surveyFactoryAddress) {
+    throw new Error(
+      "SURVEY_FACTORY_ADDRESS is required when MVP_CHAIN_MODE=sdk. " +
+        "Automatic SurveyFactory deployment is disabled.",
+    );
+  }
+
+  if (mode === "sdk" && !sharedParticipationGateAddress) {
+    throw new Error(
+      "PARTICIPATION_GATE_ADDRESS is required when MVP_CHAIN_MODE=sdk. " +
+        "Automatic ParticipationGateV2 deployment is disabled.",
+    );
+  }
+
   return {
-    mode: normalizeMode(env("MVP_CHAIN_MODE")),
+    mode,
     defaultFrom: env("AZTEC_FROM_ALIAS") ?? "accounts:test0",
     aztecNodeUrl: env("AZTEC_NODE_URL"),
-    surveyFactoryAddress: env("SURVEY_FACTORY_ADDRESS"),
-    sharedParticipationGateAddress: env("PARTICIPATION_GATE_ADDRESS"),
+    surveyFactoryAddress,
+    sharedParticipationGateAddress,
     sharedRewardVaultAddress: env("REWARD_VAULT_MVP_ADDRESS"),
     artifacts: {
       participationGateV2:

@@ -229,17 +229,20 @@ function contractsFromRunnerOutput(runnerOutput: unknown): {
   };
 }
 
-function hasAllContractAddresses(contracts: {
-  surveyFactoryAddress: string | null;
-  dscopeCoreAddress: string | null;
-  participationGateAddress: string | null;
-  rewardVaultAddress: string | null;
-}): boolean {
+function hasAllContractAddresses(
+  contracts: {
+    surveyFactoryAddress: string | null;
+    dscopeCoreAddress: string | null;
+    participationGateAddress: string | null;
+    rewardVaultAddress: string | null;
+  },
+  rewardEnabled = false,
+): boolean {
   return Boolean(
     contracts.surveyFactoryAddress &&
     contracts.dscopeCoreAddress &&
     contracts.participationGateAddress &&
-    contracts.rewardVaultAddress,
+    (!rewardEnabled || contracts.rewardVaultAddress),
   );
 }
 
@@ -296,7 +299,7 @@ async function completeCreateSurvey(
   const outputContracts = contractsFromRunnerOutput(runnerOutput);
 
   if (chainMode === "sdk") {
-    if (!outputContracts || !hasAllContractAddresses(outputContracts)) {
+    if (!outputContracts || !hasAllContractAddresses(outputContracts, Boolean(job.payload.reward?.rewardEnabled))) {
       throw new Error(
         "SDK create_survey_mvp completed without full contract addresses; refusing to write mock addresses.",
       );

@@ -4,7 +4,7 @@
 /* eslint-disable */
 import { AztecAddress, CompleteAddress } from '@aztec/aztec.js/addresses';
 import { type AbiType, type AztecAddressLike, type ContractArtifact, EventSelector, decodeFromAbi, type EthAddressLike, type FieldLike, type FunctionSelectorLike, loadContractArtifact, loadContractArtifactForPublic, type NoirCompiledContract, type OptionLike, type U128Like, type WrappedFieldLike } from '@aztec/aztec.js/abi';
-import { Contract, ContractBase, ContractFunctionInteraction, type ContractMethod, type ContractStorageLayout, DeployMethod } from '@aztec/aztec.js/contracts';
+import { Contract, ContractBase, ContractFunctionInteraction, type ContractMethod, type ContractStorageLayout, type DeployInstantiationOptions, DeployMethod } from '@aztec/aztec.js/contracts';
 import { EthAddress } from '@aztec/aztec.js/addresses';
 import { Fr, Point } from '@aztec/aztec.js/fields';
 import { type PublicKey, PublicKeys } from '@aztec/aztec.js/keys';
@@ -18,16 +18,16 @@ export const SurveyFactoryContractArtifact = loadContractArtifact(SurveyFactoryC
  * Type-safe interface for contract SurveyFactory;
  */
 export class SurveyFactoryContract extends ContractBase {
-  
+
   private constructor(
     address: AztecAddress,
     wallet: Wallet,
   ) {
     super(address, SurveyFactoryContractArtifact, wallet);
   }
-  
 
-  
+
+
   /**
    * Creates a contract instance.
    * @param address - The deployed contract's address.
@@ -41,40 +41,45 @@ export class SurveyFactoryContract extends ContractBase {
     return Contract.at(address, SurveyFactoryContract.artifact, wallet) as SurveyFactoryContract;
   }
 
-  
-  /**
-   * Creates a tx to deploy a new instance of this contract.
-   */
-  public static deploy(wallet: Wallet, registry_operator: AztecAddressLike, system_finalizer: AztecAddressLike) {
-    return new DeployMethod<SurveyFactoryContract>(PublicKeys.default(), wallet, SurveyFactoryContractArtifact, (instance, wallet) => SurveyFactoryContract.at(instance.address, wallet), Array.from(arguments).slice(1));
-  }
 
   /**
-   * Creates a tx to deploy a new instance of this contract using the specified public keys hash to derive the address.
+   * Creates a tx to deploy a new instance of this contract.
+   * @param instantiation - Optional address-affecting parameters (salt, deployer / universalDeploy, publicKeys).
+   *                       Salt defaults to a random value; the deployer is locked lazily from the first send-time `from`.
    */
-  public static deployWithPublicKeys(publicKeys: PublicKeys, wallet: Wallet, registry_operator: AztecAddressLike, system_finalizer: AztecAddressLike) {
-    return new DeployMethod<SurveyFactoryContract>(publicKeys, wallet, SurveyFactoryContractArtifact, (instance, wallet) => SurveyFactoryContract.at(instance.address, wallet), Array.from(arguments).slice(2));
+  public static deploy(wallet: Wallet, registry_operator: AztecAddressLike, system_finalizer: AztecAddressLike, instantiation?: DeployInstantiationOptions) {
+    return DeployMethod.create<SurveyFactoryContract>(
+      wallet,
+      {
+        artifact: SurveyFactoryContractArtifact,
+        postDeployCtor: (instance, wallet) => SurveyFactoryContract.at(instance.address, wallet),
+        args: [registry_operator, system_finalizer],
+      },
+      instantiation,
+    );
   }
 
   /**
    * Creates a tx to deploy a new instance of this contract using the specified constructor method.
    */
   public static deployWithOpts<M extends keyof SurveyFactoryContract['methods']>(
-    opts: { publicKeys?: PublicKeys; method?: M; wallet: Wallet },
+    opts: { method?: M; wallet: Wallet; instantiation?: DeployInstantiationOptions },
     ...args: Parameters<SurveyFactoryContract['methods'][M]>
   ) {
-    return new DeployMethod<SurveyFactoryContract>(
-      opts.publicKeys ?? PublicKeys.default(),
+    return DeployMethod.create<SurveyFactoryContract>(
       opts.wallet,
-      SurveyFactoryContractArtifact,
-      (instance, wallet) => SurveyFactoryContract.at(instance.address, wallet),
-      Array.from(arguments).slice(1),
-      opts.method ?? 'constructor',
+      {
+        artifact: SurveyFactoryContractArtifact,
+        postDeployCtor: (instance, wallet) => SurveyFactoryContract.at(instance.address, wallet),
+        args,
+        constructorNameOrArtifact: opts.method ?? 'constructor',
+      },
+      opts.instantiation,
     );
   }
-  
 
-  
+
+
   /**
    * Returns this contract's artifact.
    */
@@ -88,7 +93,7 @@ export class SurveyFactoryContract extends ContractBase {
   public static get artifactForPublic(): ContractArtifact {
     return loadContractArtifactForPublic(SurveyFactoryContractArtifactJson as NoirCompiledContract);
   }
-  
+
 
   public static get storage(): ContractStorageLayout<'registry_operator' | 'system_finalizer' | 'survey_count' | 'survey_address_by_id' | 'sponsor_by_id' | 'created_at_by_id' | 'survey_id_by_address' | 'survey_id_by_key' | 'survey_key_by_id' | 'survey_address_by_key' | 'participation_gate_by_key' | 'reward_vault_by_key' | 'predicate_policy_hash_by_key' | 'sponsor_by_key' | 'created_at_by_key' | 'metadata_hash_by_key' | 'start_time_by_key' | 'end_time_by_key' | 'system_finalizer_by_key'> {
       return {
@@ -151,11 +156,11 @@ system_finalizer_by_key: {
     }
       } as ContractStorageLayout<'registry_operator' | 'system_finalizer' | 'survey_count' | 'survey_address_by_id' | 'sponsor_by_id' | 'created_at_by_id' | 'survey_id_by_address' | 'survey_id_by_key' | 'survey_key_by_id' | 'survey_address_by_key' | 'participation_gate_by_key' | 'reward_vault_by_key' | 'predicate_policy_hash_by_key' | 'sponsor_by_key' | 'created_at_by_key' | 'metadata_hash_by_key' | 'start_time_by_key' | 'end_time_by_key' | 'system_finalizer_by_key'>;
     }
-    
+
 
   /** Type-safe wrappers for the public methods exposed by the contract. */
   public declare methods: {
-    
+
     /** constructor(registry_operator: struct, system_finalizer: struct) */
     constructor: ((registry_operator: AztecAddressLike, system_finalizer: AztecAddressLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
@@ -247,5 +252,5 @@ system_finalizer_by_key: {
     update_system_finalizer: ((new_system_finalizer: AztecAddressLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
   };
 
-  
+
 }

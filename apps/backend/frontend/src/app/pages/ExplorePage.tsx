@@ -238,7 +238,7 @@ function CatalogSurveyRow({
           <Fact
             label="Time left"
             value={
-              canParticipate
+              surveyOpen
                 ? formatTimeRemaining(survey.schedule?.timeRemainingSeconds)
                 : surveyStatusLabel(survey)
             }

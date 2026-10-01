@@ -47,7 +47,7 @@ export async function createAztecSdkConnection(
   const accounts: AztecSdkLocalAccount[] = [];
 
   for (const [index, account] of testAccounts.slice(0, accountsToLoad).entries()) {
-    const created = await wallet.createSchnorrAccount(
+    const created = await wallet.createSchnorrInitializerlessAccount(
       account.secret,
       account.salt,
       account.signingKey,

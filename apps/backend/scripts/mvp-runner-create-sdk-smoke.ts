@@ -38,6 +38,18 @@ async function main() {
   );
   const policyHash = envNumber("SDK_RUNNER_CREATE_POLICY_HASH", surveyKey + 1000);
   const metadataHash = envNumber("SDK_RUNNER_CREATE_METADATA_HASH", surveyKey + 2000);
+  const rewardEnabled =
+    (process.env.SDK_RUNNER_CREATE_REWARD_ENABLED ?? "false").toLowerCase() ===
+    "true";
+  const startTime = envNumber(
+    "SDK_RUNNER_CREATE_START_TIME",
+    Math.floor(Date.now() / 1000),
+  );
+  const endTime = envNumber("SDK_RUNNER_CREATE_END_TIME", startTime + 86_400);
+
+  if (endTime <= startTime) {
+    throw new Error(`Invalid SDK smoke time range: ${endTime} <= ${startTime}`);
+  }
 
   const payload: CreateSurveyMvpJobPayload = {
     surveyId: `survey_sdk_runner_${surveyKey}`,
@@ -45,13 +57,22 @@ async function main() {
     sponsor: process.env.AZTEC_FROM_ALIAS ?? "accounts:test0",
     metadataHash: String(metadataHash),
     predicatePolicyHash: String(policyHash),
+    durationPreset: "24h",
+    startTime,
+    endTime,
+    durationSeconds: endTime - startTime,
+    testMode: true,
     ageBuckets: ["31_35"],
     countries: ["DE"],
     regions: "ANY",
     reward: {
-      rewardEnabled: true,
-      rewardPoolAmount: process.env.SDK_RUNNER_CREATE_REWARD_POOL_AMOUNT ?? "1000",
-      claimDeadline: process.env.SDK_RUNNER_CREATE_CLAIM_DEADLINE ?? "9999999999",
+      rewardEnabled,
+      rewardPoolAmount: rewardEnabled
+        ? process.env.SDK_RUNNER_CREATE_REWARD_POOL_AMOUNT ?? "1000"
+        : "0",
+      claimDeadline: rewardEnabled
+        ? process.env.SDK_RUNNER_CREATE_CLAIM_DEADLINE ?? "9999999999"
+        : "0",
     },
   };
 
@@ -75,6 +96,9 @@ async function main() {
         surveyKey,
         policyHash,
         metadataHash,
+        rewardEnabled,
+        startTime,
+        endTime,
       },
       null,
       2,
@@ -100,8 +124,11 @@ async function main() {
   if (!output?.contracts?.surveyFactoryAddress) {
     throw new Error("SDK runner create output did not include surveyFactoryAddress");
   }
-  if (!output?.contracts?.rewardVaultAddress) {
+  if (rewardEnabled && !output?.contracts?.rewardVaultAddress) {
     throw new Error("SDK runner create output did not include rewardVaultAddress");
+  }
+  if (!rewardEnabled && output?.contracts?.rewardVaultAddress !== null) {
+    throw new Error("Rewardless SDK runner create output included rewardVaultAddress");
   }
 
   console.log(

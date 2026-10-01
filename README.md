@@ -2,90 +2,105 @@
 
 Privacy-preserving infrastructure for eligibility-gated surveys and aggregate analytics.
 
-D-Scope combines privacy-preserving identity predicates, private Aztec contract state, off-chain orchestration, and thresholded reporting. Its goal is to verify that respondents satisfy survey criteria without turning identity documents or personal attributes into public data.
+D-Scope is designed to let organizations verify that respondents satisfy survey criteria without turning identity documents or personal attributes into public survey data. The current MVP combines zkPassport-derived eligibility predicates, Aztec private state, per-survey participation controls, off-chain orchestration, and aggregate reporting.
 
-> Status: active testnet development. This repository has not been independently audited and is not production-ready.
+> **Status:** active testnet MVP on the Aztec 5.2 stack. The core end-to-end flow has been exercised in the current testnet environment. The system has not been independently audited and is not production-ready.
 
 ## Why D-Scope
 
-Online surveys face two competing requirements:
+Online research has two competing requirements:
 
-- researchers need credible eligibility and Sybil resistance;
-- participants should not have to expose their identity or personal data.
+- organizations need credible eligibility, Sybil resistance and higher-quality samples;
+- respondents should not have to expose unnecessary identity or personal data.
 
-D-Scope separates eligibility verification from survey responses. The current implementation uses zkPassport-derived predicates, Aztec private state, per-survey participation controls, and aggregate-only result publication.
+D-Scope separates eligibility verification from survey answers. A respondent proves required predicates, receives a private participation credential, and participates through a survey-specific privacy flow. Survey creators receive aggregate results rather than raw identity data.
 
-## Current capabilities
+## Current MVP capabilities
 
-- Creator registration and controlled survey creation.
-- Age and country eligibility policies.
-- Trusted zkPassport verification sessions.
-- Private participation credentials.
-- Per-survey participation consumption.
+- Controlled creator onboarding and survey creation.
+- Age, country and region eligibility policies.
+- zkPassport verification sessions through a trusted verification boundary.
+- Private participation credentials on Aztec.
+- Per-survey participation consumption / duplicate-participation protection.
 - Canonical contract-time enforcement.
-- Restricted deployment and finalization runner.
+- Restricted runner for deployment, policy registration, synchronization and finalization.
 - Aggregate analytics with minimum-sample thresholds.
 - Public-launch containment and verification rate limiting.
-- Cloudflare Worker and D1 orchestration.
+- Cloudflare Worker + D1 orchestration.
+- Current wallet flow through AzGuard while lower-friction embedded onboarding is being evaluated.
+
+## Current architecture
+
+D-Scope currently has five cooperating layers:
+
+1. **Web application** — React/Vite interfaces for creators and respondents.
+2. **Identity / eligibility boundary** — zkPassport-derived predicates such as age and geography.
+3. **Private execution boundary** — Aztec wallet/PXE flow, private credentials and participation state.
+4. **Application orchestration** — Cloudflare Worker + D1 plus a restricted runner/issuer path.
+5. **Result layer** — finalized aggregate reporting and on-chain result commitments.
+
+The MVP is intentionally **not fully decentralized**. Backend orchestration, issuer operations and finalization currently include trusted components. The privacy-critical participation state and policy checks are enforced through Aztec contracts.
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the detailed flow and trust boundaries.
+
+## Contracts
+
+| Contract | Responsibility |
+| --- | --- |
+| `ParticipationGateV2` | Private credential storage, eligibility-policy checks, survey window checks and participation consumption |
+| `DScopeCore` | Survey anchors, lifecycle data and finalized result commitments |
+| `SurveyFactory` | Survey instance registration |
+| `RewardVaultMVP` | Experimental reward architecture; disabled in the current MVP |
 
 ## Repository structure
 
 | Path | Purpose |
 | --- | --- |
-| `apps/backend/src` | Cloudflare Worker API and domain logic |
-| `apps/backend/frontend/src/app` | React survey and creator application |
+| `apps/backend/src` | Cloudflare Worker API and application/domain logic |
+| `apps/backend/frontend/src/app` | Current React survey/creator application |
 | `apps/backend/frontend/src/verify-real.ts` | zkPassport verification frontend |
 | `apps/backend/migrations` | D1 schema and migration history |
-| `apps/backend/scripts` | Runner, validation and operational scripts |
-| `contracts` | Aztec Noir contracts and TypeScript bindings |
-| `docs` | Architecture and known limitations |
+| `apps/backend/scripts` | Runner, issuer, validation and operational scripts |
+| `contracts` | Aztec Noir contracts and committed TypeScript bindings |
+| `docs` | Architecture, limitations and long-term direction |
 
-Generated bundles, local databases, environment files, compiler targets, snapshots and dependency directories are excluded from Git.
+Generated application bundles, local databases, environment files, compiler caches, snapshots and dependency directories are excluded from Git. The exact compiled contract JSON artifacts imported by the committed TypeScript bindings are retained so a fresh checkout has a complete JavaScript/TypeScript contract artifact set.
 
-## Architecture
+## Toolchain snapshot
 
-D-Scope currently consists of five cooperating layers:
+- Aztec JS / Wallet SDK: `5.2.0`
+- Aztec Noir dependencies: tag `v5.2.0`
+- zkPassport SDK/UI: `0.16.1`
+- Frontend: React + Vite
+- Backend: Cloudflare Workers + D1
 
-1. A browser application for creators and respondents.
-2. A wallet and PXE boundary for private Aztec state.
-3. A Cloudflare Worker API backed by D1.
-4. A restricted runner for contract orchestration and finalization.
-5. Aztec contracts for policy enforcement and participation state.
-
-Detailed documentation is available in `docs/ARCHITECTURE.md`.
+The current wallet integration also retains a compatibility alias to `@aztec/noir-contracts.js@5.1.0` for the SponsoredFPC path used by the current implementation. This should be revisited as the wallet/fee stack evolves.
 
 ## Local validation
 
-Requirements:
+The authoritative JavaScript lockfile is `apps/backend/package-lock.json` and is aligned with the current Aztec 5.2 dependency set.
 
-- Node.js and npm.
-- Aztec CLI 5.1.0 for contract compilation.
-- Nargo 1.0.0-beta.22 for the current Noir contracts.
+For local validation:
 
-Install backend dependencies:
+```bash
+npm run backend:install
+npm test
+npm run build
+npm run worker:dry-run
+```
 
-    npm run backend:install
-
-Run the non-E2E security and regression suite:
-
-    npm test
-
-Build both frontend applications:
-
-    npm run build
-
-Validate the Worker package without deploying:
-
-    npm run worker:dry-run
-
-The authoritative JavaScript lockfile is `apps/backend/package-lock.json`.
+Network E2E testing requires the appropriate Aztec testnet, wallet, verifier and runner configuration and should not be inferred from local smoke tests alone.
 
 ## Security and limitations
 
 Do not commit credentials, wallet state, proof material, local databases or production environment files.
 
-See `SECURITY.md` for vulnerability reporting and `docs/KNOWN_LIMITATIONS.md` for current testnet limitations.
+See [`SECURITY.md`](SECURITY.md) and [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).
+
+## Direction
+
+The current MVP deliberately keeps rewards disabled and uses a limited predicate set. Longer-term work includes reward pools, progressive decentralization, broader privacy predicates, and lower-friction account/wallet abstraction. See [`docs/FUTURE_DIRECTION.md`](docs/FUTURE_DIRECTION.md).
 
 ## License
 
-D-Scope is licensed under the Apache License 2.0. See `LICENSE`.
+Apache License 2.0. See [`LICENSE`](LICENSE).

@@ -1,6 +1,5 @@
-/node_modules
-/node_modules/
 # Dependencies
+/node_modules/
 **/node_modules/
 
 # Environment and secrets
@@ -29,14 +28,28 @@
 
 # Generated application builds
 apps/backend/public/mvp/
+apps/backend/public/verify-real/
 **/dist/
 **/coverage/
 **/.vite/
 
-# Aztec and Noir build output
-**/target/
+# Aztec and Noir build output / generated caches
+# Ignore target output by default, but retain the exact compiled JSON artifacts
+# imported by the committed TypeScript contract bindings.
+**/target/*
+!contracts/dscope_core/target/
+!contracts/dscope_core/target/dscope_core-DScopeCore.json
+!contracts/participation_gate_v2/target/
+!contracts/participation_gate_v2/target/participation_gate_v2-ParticipationGateV2.json
+!contracts/reward_vault_mvp/target/
+!contracts/reward_vault_mvp/target/reward_vault_mvp-RewardVaultMVP.json
+!contracts/survey_factory/target/
+!contracts/survey_factory/target/survey_factory-SurveyFactory.json
+!apps/backend/frontend/src/app/contracts/participation_gate_v2/target/
+!apps/backend/frontend/src/app/contracts/participation_gate_v2/target/participation_gate_v2-ParticipationGateV2.json
 **/cache/
 **/cache-zk/
+**/codegenCache.json
 
 # Logs and temporary files
 *.log
@@ -47,18 +60,21 @@ pnpm-debug.log*
 *.temp
 tmp/
 
-# Snapshots, archives and local copies
+# Snapshots, archives, backups and one-off local probes
 _server_snapshots/
 *.zip
 *.tar
 *.tar.gz
 *.tgz
-*.bak
+*.bak*
+**/*.bak*
+**/.dscope-*
 
 # Local editor and OS files
 .vscode/
 **/.vscode/
 .DS_Store
 Thumbs.db
+
+# Root lockfile is not authoritative; backend owns its lockfile
 /package-lock.json
-/apps/backend/public/verify-real/

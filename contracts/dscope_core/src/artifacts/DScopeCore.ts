@@ -4,7 +4,7 @@
 /* eslint-disable */
 import { AztecAddress, CompleteAddress } from '@aztec/aztec.js/addresses';
 import { type AbiType, type AztecAddressLike, type ContractArtifact, EventSelector, decodeFromAbi, type EthAddressLike, type FieldLike, type FunctionSelectorLike, loadContractArtifact, loadContractArtifactForPublic, type NoirCompiledContract, type OptionLike, type U128Like, type WrappedFieldLike } from '@aztec/aztec.js/abi';
-import { Contract, ContractBase, ContractFunctionInteraction, type ContractMethod, type ContractStorageLayout, DeployMethod } from '@aztec/aztec.js/contracts';
+import { Contract, ContractBase, ContractFunctionInteraction, type ContractMethod, type ContractStorageLayout, type DeployInstantiationOptions, DeployMethod } from '@aztec/aztec.js/contracts';
 import { EthAddress } from '@aztec/aztec.js/addresses';
 import { Fr, Point } from '@aztec/aztec.js/fields';
 import { type PublicKey, PublicKeys } from '@aztec/aztec.js/keys';
@@ -18,16 +18,16 @@ export const DScopeCoreContractArtifact = loadContractArtifact(DScopeCoreContrac
  * Type-safe interface for contract DScopeCore;
  */
 export class DScopeCoreContract extends ContractBase {
-  
+
   private constructor(
     address: AztecAddress,
     wallet: Wallet,
   ) {
     super(address, DScopeCoreContractArtifact, wallet);
   }
-  
 
-  
+
+
   /**
    * Creates a contract instance.
    * @param address - The deployed contract's address.
@@ -41,40 +41,45 @@ export class DScopeCoreContract extends ContractBase {
     return Contract.at(address, DScopeCoreContract.artifact, wallet) as DScopeCoreContract;
   }
 
-  
-  /**
-   * Creates a tx to deploy a new instance of this contract.
-   */
-  public static deploy(wallet: Wallet, sponsor: AztecAddressLike, treasury: AztecAddressLike, system_finalizer: AztecAddressLike, participation_gate: AztecAddressLike, survey_key: FieldLike, metadata_hash: FieldLike, predicate_policy_hash: FieldLike, start_time: (bigint | number), end_time: (bigint | number), reward_pool_amount: FieldLike, claim_deadline: FieldLike, reward_enabled: FieldLike, minimum_sample_target: FieldLike, analytics_min_total_sample: FieldLike, analytics_min_segment_sample: FieldLike, analytics_visibility_mode: FieldLike) {
-    return new DeployMethod<DScopeCoreContract>(PublicKeys.default(), wallet, DScopeCoreContractArtifact, (instance, wallet) => DScopeCoreContract.at(instance.address, wallet), Array.from(arguments).slice(1));
-  }
 
   /**
-   * Creates a tx to deploy a new instance of this contract using the specified public keys hash to derive the address.
+   * Creates a tx to deploy a new instance of this contract.
+   * @param instantiation - Optional address-affecting parameters (salt, deployer / universalDeploy, publicKeys).
+   *                       Salt defaults to a random value; the deployer is locked lazily from the first send-time `from`.
    */
-  public static deployWithPublicKeys(publicKeys: PublicKeys, wallet: Wallet, sponsor: AztecAddressLike, treasury: AztecAddressLike, system_finalizer: AztecAddressLike, participation_gate: AztecAddressLike, survey_key: FieldLike, metadata_hash: FieldLike, predicate_policy_hash: FieldLike, start_time: (bigint | number), end_time: (bigint | number), reward_pool_amount: FieldLike, claim_deadline: FieldLike, reward_enabled: FieldLike, minimum_sample_target: FieldLike, analytics_min_total_sample: FieldLike, analytics_min_segment_sample: FieldLike, analytics_visibility_mode: FieldLike) {
-    return new DeployMethod<DScopeCoreContract>(publicKeys, wallet, DScopeCoreContractArtifact, (instance, wallet) => DScopeCoreContract.at(instance.address, wallet), Array.from(arguments).slice(2));
+  public static deploy(wallet: Wallet, sponsor: AztecAddressLike, treasury: AztecAddressLike, system_finalizer: AztecAddressLike, participation_gate: AztecAddressLike, survey_key: FieldLike, metadata_hash: FieldLike, predicate_policy_hash: FieldLike, start_time: (bigint | number), end_time: (bigint | number), reward_pool_amount: FieldLike, claim_deadline: FieldLike, reward_enabled: FieldLike, minimum_sample_target: FieldLike, analytics_min_total_sample: FieldLike, analytics_min_segment_sample: FieldLike, analytics_visibility_mode: FieldLike, instantiation?: DeployInstantiationOptions) {
+    return DeployMethod.create<DScopeCoreContract>(
+      wallet,
+      {
+        artifact: DScopeCoreContractArtifact,
+        postDeployCtor: (instance, wallet) => DScopeCoreContract.at(instance.address, wallet),
+        args: [sponsor, treasury, system_finalizer, participation_gate, survey_key, metadata_hash, predicate_policy_hash, start_time, end_time, reward_pool_amount, claim_deadline, reward_enabled, minimum_sample_target, analytics_min_total_sample, analytics_min_segment_sample, analytics_visibility_mode],
+      },
+      instantiation,
+    );
   }
 
   /**
    * Creates a tx to deploy a new instance of this contract using the specified constructor method.
    */
   public static deployWithOpts<M extends keyof DScopeCoreContract['methods']>(
-    opts: { publicKeys?: PublicKeys; method?: M; wallet: Wallet },
+    opts: { method?: M; wallet: Wallet; instantiation?: DeployInstantiationOptions },
     ...args: Parameters<DScopeCoreContract['methods'][M]>
   ) {
-    return new DeployMethod<DScopeCoreContract>(
-      opts.publicKeys ?? PublicKeys.default(),
+    return DeployMethod.create<DScopeCoreContract>(
       opts.wallet,
-      DScopeCoreContractArtifact,
-      (instance, wallet) => DScopeCoreContract.at(instance.address, wallet),
-      Array.from(arguments).slice(1),
-      opts.method ?? 'constructor',
+      {
+        artifact: DScopeCoreContractArtifact,
+        postDeployCtor: (instance, wallet) => DScopeCoreContract.at(instance.address, wallet),
+        args,
+        constructorNameOrArtifact: opts.method ?? 'constructor',
+      },
+      opts.instantiation,
     );
   }
-  
 
-  
+
+
   /**
    * Returns this contract's artifact.
    */
@@ -88,7 +93,7 @@ export class DScopeCoreContract extends ContractBase {
   public static get artifactForPublic(): ContractArtifact {
     return loadContractArtifactForPublic(DScopeCoreContractArtifactJson as NoirCompiledContract);
   }
-  
+
 
   public static get storage(): ContractStorageLayout<'sponsor' | 'treasury' | 'system_finalizer' | 'participation_gate' | 'survey_key' | 'metadata_hash' | 'predicate_policy_hash' | 'start_time' | 'end_time' | 'result_hash' | 'distribution_hash' | 'finalized_at' | 'reward_pool_amount' | 'claim_deadline' | 'reward_enabled' | 'minimum_sample_target' | 'final_participant_count' | 'analytics_min_total_sample' | 'analytics_min_segment_sample' | 'analytics_visibility_mode' | 'cancel_reason_code' | 'status'> {
       return {
@@ -160,11 +165,11 @@ status: {
     }
       } as ContractStorageLayout<'sponsor' | 'treasury' | 'system_finalizer' | 'participation_gate' | 'survey_key' | 'metadata_hash' | 'predicate_policy_hash' | 'start_time' | 'end_time' | 'result_hash' | 'distribution_hash' | 'finalized_at' | 'reward_pool_amount' | 'claim_deadline' | 'reward_enabled' | 'minimum_sample_target' | 'final_participant_count' | 'analytics_min_total_sample' | 'analytics_min_segment_sample' | 'analytics_visibility_mode' | 'cancel_reason_code' | 'status'>;
     }
-    
+
 
   /** Type-safe wrappers for the public methods exposed by the contract. */
   public declare methods: {
-    
+
     /** cancel_before_start(cancel_reason_code: field, current_time: integer) */
     cancel_before_start: ((cancel_reason_code: FieldLike, current_time: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
@@ -250,5 +255,5 @@ status: {
     sync_state: ((scope: AztecAddressLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
   };
 
-  
+
 }

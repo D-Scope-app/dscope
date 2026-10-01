@@ -1,3 +1,4 @@
+import { SponsoredFPCContractArtifact } from "aztec-noir-contracts-5-1/SponsoredFPC";
 import type { WalletConnection } from "../model";
 import type { ParticipationPlan } from "../types";
 
@@ -39,14 +40,16 @@ type WalletSdkConnection = {
 let activeWalletSdkConnection: WalletSdkConnection | null = null;
 
 function debugParticipation(message: string, data?: unknown): void {
-  console.info(`[D-Scope DEBUG] ${message}`, data ?? "");
+  if (import.meta.env.VITE_WALLET_DEBUG_LOGS === "true") {
+    console.info(`[D-Scope DEBUG] ${message}`, data ?? "");
+  }
 
   if (import.meta.env.VITE_WALLET_DEBUG_ALERTS !== "true") return;
 
   try {
     window.alert(`[D-Scope DEBUG] ${message}`);
   } catch {
-    // Ignore alert failures in non-browser contexts. Console diagnostics remain available.
+    // Ignore alert failures in non-browser contexts.
   }
 }
 
@@ -303,7 +306,11 @@ async function maybeRegisterParticipationGateInWallet(input: {
       return;
     }
 
-    await input.wallet.registerContract(instance, input.artifact);
+    await input.wallet.registerContract(
+      instance,
+      input.artifact,
+    );
+
     debugParticipation(
       "ParticipationGateV2 registered in wallet",
       input.target,
@@ -325,6 +332,13 @@ async function sendWalletSdkParticipationTransaction(input: {
   participantAddress: string | null;
 }): Promise<string> {
   debugParticipation("wallet-sdk participation function entered", input);
+
+  const perfStartedAt = performance.now();
+  const perfMarks: Record<string, number> = {};
+
+  const perfMark = (name: string): void => {
+    perfMarks[name] = Math.round(performance.now() - perfStartedAt);
+  };
 
   const connection = activeWalletSdkConnection;
 
@@ -405,6 +419,87 @@ async function sendWalletSdkParticipationTransaction(input: {
   const targetAddress = aztecAddressFromString(AztecAddress, target);
   const fromAddress = aztecAddressFromString(AztecAddress, connectedAddress);
 
+  const sponsoredFpcAddress = (
+    import.meta.env.VITE_AZTEC_SPONSORED_FPC_ADDRESS ||
+    import.meta.env.VITE_AZTEC_FPC_ADDRESS ||
+    "0x130925fbd734a252e3d8ddff87f6c346052dd5c13314eb96026b32baa1923296"
+  ).toString();
+
+  const sponsoredFpcTargetAddress = aztecAddressFromString(
+    AztecAddress,
+    sponsoredFpcAddress,
+  );
+
+  if (!connection.wallet.requestCapabilities) {
+    throw new Error(
+      "Azguard does not support scoped capability requests required for participation.",
+    );
+  }
+
+  const participationCapabilities =
+    await connection.wallet.requestCapabilities({
+      version: "1.0",
+      metadata: {
+        name: "D-Scope",
+        version: "0.1.0",
+        description: "Private research campaigns for verified audiences.",
+        url: window.location.origin,
+      },
+      capabilities: [
+        { type: "accounts", canGet: true },
+        {
+          type: "contracts",
+          contracts: [targetAddress, sponsoredFpcTargetAddress],
+          canRegister: true,
+        },
+        {
+          type: "simulation",
+          transactions: {
+            scope: [
+              {
+                contract: targetAddress,
+                function: "participate",
+              },
+              {
+                contract: sponsoredFpcTargetAddress,
+                function: "sponsor_unconditionally",
+              },
+            ],
+          },
+        },
+        {
+          type: "transaction",
+          scope: [
+            {
+              contract: targetAddress,
+              function: "participate",
+            },
+            {
+              contract: sponsoredFpcTargetAddress,
+              function: "sponsor_unconditionally",
+            },
+          ],
+        },
+      ],
+    });
+
+  perfMark("capabilities_granted");
+
+  const participationGrantedAccount =
+    extractGrantedAccount(participationCapabilities);
+
+  if (
+    participationGrantedAccount &&
+    !sameAztecAddress(
+      accountToAddress(participationGrantedAccount),
+      connectedAddress,
+    )
+  ) {
+    throw new Error(
+      "Azguard granted participation permissions for a different account.",
+    );
+  }
+
   const surveyKey = parseParticipationField(
     "surveyKey",
     input.contractCall.args.surveyKey,
@@ -427,6 +522,8 @@ async function sendWalletSdkParticipationTransaction(input: {
     target,
     artifact: ParticipationGateV2ContractArtifact,
   });
+
+  perfMark("gate_registered");
 
   console.info("[D-Scope] sending ParticipationGateV2.participate", {
     target,
@@ -526,8 +623,21 @@ async function sendWalletSdkParticipationTransaction(input: {
   const fpcAddress = (
     import.meta.env.VITE_AZTEC_SPONSORED_FPC_ADDRESS ||
     import.meta.env.VITE_AZTEC_FPC_ADDRESS ||
-    "0x1969946536f0c09269e2c75e414eef4e21a76e763c5514125208db33d7d944d7"
+    "0x130925fbd734a252e3d8ddff87f6c346052dd5c13314eb96026b32baa1923296"
   ).toString();
+  debugParticipation(
+    "Registering the current Sponsored FPC before fee simulation",
+    { fpcAddress },
+  );
+
+  await maybeRegisterParticipationGateInWallet({
+    wallet: connection.wallet,
+    target: fpcAddress,
+    artifact: SponsoredFPCContractArtifact,
+  });
+
+  perfMark("fpc_registered");
+
   const SponsoredFeePaymentMethod =
     feeModule &&
     (feeModule as Record<string, unknown>).SponsoredFeePaymentMethod;
@@ -559,6 +669,8 @@ async function sendWalletSdkParticipationTransaction(input: {
       ...transactionOptions,
       includeMetadata: true,
     });
+    perfMark("simulation_complete");
+
     console.info("[D-Scope] participation preflight simulation succeeded", {
       target,
       from: fromAddress.toString(),
@@ -579,6 +691,7 @@ async function sendWalletSdkParticipationTransaction(input: {
 
   const sentTx = await interaction.send(transactionOptions);
 
+  perfMark("send_returned");
   debugParticipation("participate().send() returned", sentTx);
 
   const earlyTxHash = await getResultTxHashAsync(sentTx);
@@ -586,6 +699,15 @@ async function sendWalletSdkParticipationTransaction(input: {
 
   if (typeof wait !== "function") {
     const txHash = earlyTxHash || getResultTxHash(sentTx);
+
+    perfMark("tx_submitted");
+
+    console.info("[D-Scope PERF] participation timings ms", {
+      ...perfMarks,
+      total: Math.round(performance.now() - perfStartedAt),
+      completion: "submitted",
+    });
+
     console.info("[D-Scope] participation tx submitted", txHash);
     return txHash;
   }
@@ -599,6 +721,13 @@ async function sendWalletSdkParticipationTransaction(input: {
       "Azguard submitted the participation transaction, but tx hash could not be parsed.",
     );
   }
+
+  perfMark("receipt_confirmed");
+
+  console.info("[D-Scope PERF] participation timings ms", {
+    ...perfMarks,
+    total: Math.round(performance.now() - perfStartedAt),
+  });
 
   console.info("[D-Scope] participation tx confirmed", txHash);
   return txHash;
@@ -910,12 +1039,16 @@ async function connectWithWalletSdk(): Promise<WalletSdkConnection> {
 
   const chainInfo = await getWalletSdkChainInfo();
   const manager = WalletManager.configure({
-    extensions: { enabled: true },
+    extensions: {
+      enabled: true,
+      allowList: ["azguard-wallet"],
+    },
   }) as {
     getAvailableWallets: (args: unknown) => unknown;
   };
 
   const provider = await waitForWalletProvider({ manager, chainInfo });
+
   const pending = await provider.establishSecureChannel!("dscope-app");
   const emojis = formatVerificationEmojis(
     hashToEmoji(pending.verificationHash),
@@ -941,19 +1074,7 @@ async function connectWithWalletSdk(): Promise<WalletSdkConnection> {
       url: window.location.origin,
     },
     capabilities: [
-      { type: "accounts", canGet: true, canCreateAuthWit: true },
-      {
-        type: "simulation",
-        transactions: { scope: "*" },
-        utilities: { scope: "*" },
-      },
-      {
-        type: "contracts",
-        contracts: "*",
-        canRegister: true,
-        canGetMetadata: true,
-      },
-      { type: "transaction", scope: "*" },
+      { type: "accounts", canGet: true },
     ],
   });
 
@@ -1020,13 +1141,68 @@ export async function sendAzguardParticipationTransaction(input: {
   debugParticipation("sendAzguardParticipationTransaction entered", input);
 
   const { participationPlan, participantAddress } = input;
-  const contractCall = participationPlan?.contractCall;
 
-  if (!contractCall) {
+  const rawPlan = participationPlan as
+    | (ParticipationPlan & {
+        participationGateAddress?: unknown;
+        surveyKey?: unknown;
+        policyHash?: unknown;
+      })
+    | null
+    | undefined;
+
+  const rawContractCall = rawPlan?.contractCall as unknown as
+    | {
+        target?: unknown;
+        method?: unknown;
+        args?: unknown;
+        currentTime?: unknown;
+      }
+    | null
+    | undefined;
+
+  if (!rawContractCall) {
     throw new Error(
       "Participation plan does not include an Azguard contract call.",
     );
   }
+
+  const positionalArgs = Array.isArray(rawContractCall.args)
+    ? rawContractCall.args
+    : [];
+
+  const namedArgs =
+    rawContractCall.args &&
+    !Array.isArray(rawContractCall.args) &&
+    typeof rawContractCall.args === "object"
+      ? (rawContractCall.args as Record<string, unknown>)
+      : {};
+
+  const targetCandidate =
+    rawContractCall.target ?? rawPlan?.participationGateAddress;
+
+  const target =
+    typeof targetCandidate === "string" ? targetCandidate.trim() : "";
+
+  const contractCall = {
+    target,
+    method:
+      typeof rawContractCall.method === "string"
+        ? rawContractCall.method
+        : "",
+    args: {
+      surveyKey:
+        namedArgs.surveyKey ?? positionalArgs[0] ?? rawPlan?.surveyKey,
+      policyHash:
+        namedArgs.policyHash ?? positionalArgs[1] ?? rawPlan?.policyHash,
+      currentTime:
+        namedArgs.currentTime ??
+        positionalArgs[2] ??
+        rawContractCall.currentTime,
+    },
+  } as NonNullable<ParticipationPlan["contractCall"]>;
+
+  debugParticipation("normalized participation contract call", contractCall);
 
   if (!contractCall.target) {
     throw new Error(
@@ -1040,7 +1216,11 @@ export async function sendAzguardParticipationTransaction(input: {
     );
   }
 
-  if (!contractCall.args.policyHash) {
+  if (
+    contractCall.args.policyHash === undefined ||
+    contractCall.args.policyHash === null ||
+    contractCall.args.policyHash === ""
+  ) {
     throw new Error("Policy hash is missing from participation plan.");
   }
 

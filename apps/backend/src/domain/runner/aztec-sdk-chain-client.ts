@@ -1,4 +1,6 @@
 import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
+import { SponsoredFPCContractArtifact } from "aztec-noir-contracts-5-1/SponsoredFPC";
 
 import {
   createAztecSdkConnection,
@@ -36,12 +38,18 @@ import {
   DScopeCoreContract,
   DScopeCoreContractArtifact,
 } from "../../../../../contracts/dscope_core/src/artifacts/DScopeCore";
-import { SurveyFactoryContract } from "../../../../../contracts/survey_factory/src/artifacts/SurveyFactory";
+import {
+  SurveyFactoryContract,
+  SurveyFactoryContractArtifact,
+} from "../../../../../contracts/survey_factory/src/artifacts/SurveyFactory";
 
 type TxLike = {
   receipt?: { txHash?: unknown; transactionFee?: unknown };
   txHash?: unknown;
 };
+
+const DEFAULT_SPONSORED_FPC_ADDRESS =
+  "0x130925fbd734a252e3d8ddff87f6c346052dd5c13314eb96026b32baa1923296";
 
 export type SdkCreateSurveyBundleResult = {
   surveyId: string;
@@ -51,7 +59,7 @@ export type SdkCreateSurveyBundleResult = {
     surveyFactoryAddress: string;
     dscopeCoreAddress: string;
     participationGateAddress: string;
-    rewardVaultAddress: string;
+    rewardVaultAddress: string | null;
   };
   txHashes: Record<string, string | null>;
   policy: {
@@ -72,7 +80,7 @@ export type SdkCreateSurveyBundleResult = {
     factorySystemFinalizer: string | null;
     coreStatus: string;
     coreGate: string;
-    rewardStatus: string;
+    rewardStatus: string | null;
   };
 };
 
@@ -83,7 +91,7 @@ export type SdkFinalizeSurveyBundleResult = {
   contracts: {
     dscopeCoreAddress: string;
     participationGateAddress: string;
-    rewardVaultAddress: string;
+    rewardVaultAddress: string | null;
   };
   txHashes: Record<string, string | null>;
   result: {
@@ -95,7 +103,7 @@ export type SdkFinalizeSurveyBundleResult = {
     finalizationPayload: unknown;
   };
   reward: {
-    rewardStatus: "FINALIZED";
+    rewardStatus: "FINALIZED" | "DISABLED";
     rewardPerParticipant: string;
     totalAllocated: string;
     dustReturnToSponsor: string;
@@ -167,7 +175,7 @@ function toU64Array(values: string[]): bigint[] {
 }
 
 function parseAddress(address: string): AztecAddress {
-  return AztecAddress.fromString(address);
+  return AztecAddress.fromStringUnsafe(address);
 }
 
 async function registerDeployedContractInWallet(input: {
@@ -188,6 +196,28 @@ async function registerDeployedContractInWallet(input: {
     instance,
     input.artifact as never,
   );
+}
+
+async function createSponsoredFeeOptions(
+  connection: Awaited<ReturnType<typeof createAztecSdkConnection>>,
+) {
+  const sponsoredFpcAddress = parseAddress(
+    process.env.AZTEC_SPONSORED_FPC_ADDRESS ??
+      DEFAULT_SPONSORED_FPC_ADDRESS,
+  );
+
+  await registerDeployedContractInWallet({
+    connection,
+    address: sponsoredFpcAddress,
+    artifact: SponsoredFPCContractArtifact,
+    label: "SponsoredFPC",
+  });
+
+  return {
+    paymentMethod: new SponsoredFeePaymentMethod(
+      sponsoredFpcAddress,
+    ),
+  };
 }
 
 /**
@@ -226,12 +256,31 @@ export class AztecSdkChainClient implements MvpChainClient {
   async createSurveyBundle(
     payload: CreateSurveyMvpJobPayload,
   ): Promise<SdkCreateSurveyBundleResult> {
+    const surveyFactoryAddress = this.config.surveyFactoryAddress;
+    const sharedParticipationGateAddress =
+      this.config.sharedParticipationGateAddress;
+
+    if (!surveyFactoryAddress) {
+      throw new Error(
+        "SURVEY_FACTORY_ADDRESS is required for SDK survey creation. " +
+          "Automatic SurveyFactory deployment is disabled.",
+      );
+    }
+
+    if (!sharedParticipationGateAddress) {
+      throw new Error(
+        "PARTICIPATION_GATE_ADDRESS is required for SDK survey creation. " +
+          "Automatic ParticipationGateV2 deployment is disabled.",
+      );
+    }
+
     const connection = await createAztecSdkConnection({
       nodeUrl: this.config.aztecNodeUrl,
       accountsToLoad: 3,
     });
 
     const sponsor = findSdkAccount(connection, this.config.defaultFrom);
+    const fee = await createSponsoredFeeOptions(connection);
 
     const surveyKey = asNumber(payload.surveyKey, Date.now());
     const metadataHash = asNonZeroBigInt(
@@ -264,51 +313,148 @@ export class AztecSdkChainClient implements MvpChainClient {
       );
     }
 
-    const txHashes: Record<string, string | null> = {};
+    const txHashes: Record<string, string | null> = {
+      deployParticipationGate: null,
+    };
 
-    let surveyFactory: SurveyFactoryContract;
-    if (this.config.surveyFactoryAddress) {
-      surveyFactory = SurveyFactoryContract.at(
-        parseAddress(this.config.surveyFactoryAddress),
-        connection.wallet,
+    const factoryAddress = parseAddress(surveyFactoryAddress);
+
+    await registerDeployedContractInWallet({
+      connection,
+      address: factoryAddress,
+      artifact: SurveyFactoryContractArtifact,
+      label: "SurveyFactory",
+    });
+
+    const surveyFactory = SurveyFactoryContract.at(
+      factoryAddress,
+      connection.wallet,
+    );
+    const factoryMethods = surveyFactory.methods as any;
+
+    if (
+      typeof factoryMethods.get_registry_operator !== "function" ||
+      typeof factoryMethods.get_system_finalizer !== "function" ||
+      typeof factoryMethods.is_survey_key_registered !== "function"
+    ) {
+      throw new Error(
+        "SurveyFactory artifact is missing required authority/duplicate-check methods. " +
+          "Refusing to submit survey-creation transactions.",
       );
-    } else {
-      const deploy = await SurveyFactoryContract.deploy(
-        connection.wallet,
-        sponsor.address,
-        sponsor.address,
-      ).send({ from: sponsor.address });
-      surveyFactory = deploy.contract;
-      txHashes.deploySurveyFactory = txHashOf(deploy);
     }
 
-    let gate: ParticipationGateV2Contract;
-    if (this.config.sharedParticipationGateAddress) {
-      gate = ParticipationGateV2Contract.at(
-        parseAddress(this.config.sharedParticipationGateAddress),
-        connection.wallet,
+    const { result: registryOperator } = await factoryMethods
+      .get_registry_operator()
+      .simulate({ from: sponsor.address });
+
+    if (
+      stringify(registryOperator).toLowerCase() !==
+      sponsor.address.toString().toLowerCase()
+    ) {
+      throw new Error(
+        `SurveyFactory registry operator mismatch: expected ${sponsor.address.toString()}, ` +
+          `got ${stringify(registryOperator)}. Refusing to submit transactions.`,
       );
-    } else {
-      const deploy = await ParticipationGateV2Contract.deploy(
-        connection.wallet,
-        sponsor.address,
-      ).send({ from: sponsor.address });
-      gate = deploy.contract;
-      txHashes.deployParticipationGate = txHashOf(deploy);
     }
+
+    const { result: canonicalFactorySystemFinalizer } = await factoryMethods
+      .get_system_finalizer()
+      .simulate({ from: sponsor.address });
+
+    const systemFinalizerAddress = parseAddress(
+      stringify(canonicalFactorySystemFinalizer),
+    );
+
+    const { result: surveyKeyAlreadyRegistered } = await factoryMethods
+      .is_survey_key_registered(surveyKey)
+      .simulate({ from: sponsor.address });
+
+    const surveyKeyRegisteredText = stringify(
+      surveyKeyAlreadyRegistered,
+    ).toLowerCase();
+
+    if (
+      surveyKeyAlreadyRegistered === true ||
+      surveyKeyRegisteredText === "true" ||
+      surveyKeyRegisteredText === "1"
+    ) {
+      throw new Error(
+        `Survey key ${surveyKey} is already registered in SurveyFactory ${factoryAddress.toString()}. ` +
+          "Refusing to submit any survey-creation transactions.",
+      );
+    }
+
+    const gateAddress = parseAddress(sharedParticipationGateAddress);
+
+    await registerDeployedContractInWallet({
+      connection,
+      address: gateAddress,
+      artifact: ParticipationGateV2ContractArtifact,
+      label: "ParticipationGateV2",
+    });
+
+    const gate = ParticipationGateV2Contract.at(
+      gateAddress,
+      connection.wallet,
+    );
 
     const gateMethods = gate.methods as any;
+
+    if (
+      typeof gateMethods.get_issuer !== "function" ||
+      typeof gateMethods.get_policy_configured !== "function"
+    ) {
+      throw new Error(
+        "ParticipationGateV2 artifact is missing required shared-gate preflight methods. " +
+          "Refusing to submit transactions.",
+      );
+    }
+
+    const { result: gateIssuer } = await gateMethods
+      .get_issuer()
+      .simulate({ from: sponsor.address });
+
+    if (
+      stringify(gateIssuer).toLowerCase() !==
+      sponsor.address.toString().toLowerCase()
+    ) {
+      throw new Error(
+        `Shared ParticipationGateV2 issuer mismatch: expected ${sponsor.address.toString()}, ` +
+          `got ${stringify(gateIssuer)}. Refusing to submit transactions.`,
+      );
+    }
+
+    const { result: gatePolicyConfigured } = await gateMethods
+      .get_policy_configured(surveyKey)
+      .simulate({ from: sponsor.address });
+
+    if (stringify(gatePolicyConfigured) !== "0") {
+      throw new Error(
+        `Survey key ${surveyKey} already has an active policy in shared ParticipationGateV2 ${gateAddress.toString()}. ` +
+          "Use a fresh survey key; refusing to submit transactions.",
+      );
+    }
+
+    /*
+     * survey_start_time_by_key and survey_end_time_by_key are
+     * PublicImmutable values. Their normal getters intentionally revert
+     * while the value is uninitialized, so they must not be probed as
+     * zero-valued state here.
+     *
+     * register_survey_window() performs the correct read_unsafe-based
+     * idempotency/mismatch checks itself.
+     */
     if (typeof gateMethods.register_survey_window !== "function") {
       throw new Error(
         "ParticipationGateV2 artifact does not expose register_survey_window. " +
-          "Compile and regenerate the Aztec 5.1.0 contract bindings before deployment.",
+          "Compile and regenerate the Aztec 5.2.0 contract bindings before deployment.",
       );
     }
 
     txHashes.registerSurveyWindow = txHashOf(
       await gateMethods
         .register_survey_window(surveyKey, startTime, endTime)
-        .send({ from: sponsor.address }),
+        .send({ from: sponsor.address, fee }),
     );
 
     if (typeof gateMethods.register_survey_policy === "function") {
@@ -322,7 +468,7 @@ export class AztecSdkChainClient implements MvpChainClient {
             BigInt(policy.countryMode),
             toU64Array(policy.countryBitmap),
           )
-          .send({ from: sponsor.address }),
+          .send({ from: sponsor.address, fee }),
       );
 
       txHashes.registerSurveyPolicy = registerSurveyPolicyTxHash;
@@ -332,70 +478,89 @@ export class AztecSdkChainClient implements MvpChainClient {
       txHashes.registerPolicyHash = txHashOf(
         await gate.methods
           .register_policy_hash(surveyKey, policyHash)
-          .send({ from: sponsor.address }),
+          .send({ from: sponsor.address, fee }),
       );
       txHashes.registerAgeMode = txHashOf(
         await gate.methods
           .register_age_mode(surveyKey, BigInt(policy.ageMode))
-          .send({ from: sponsor.address }),
+          .send({ from: sponsor.address, fee }),
       );
       txHashes.registerAgeMask = txHashOf(
         await gate.methods
           .register_age_mask(surveyKey, BigInt(policy.ageMask))
-          .send({ from: sponsor.address }),
+          .send({ from: sponsor.address, fee }),
       );
       txHashes.registerCountryMode = txHashOf(
         await gate.methods
           .register_country_mode(surveyKey, BigInt(policy.countryMode))
-          .send({ from: sponsor.address }),
+          .send({ from: sponsor.address, fee }),
       );
       txHashes.registerCountryBitmap = txHashOf(
         await gate.methods
           .register_country_bitmap(surveyKey, toU64Array(policy.countryBitmap))
-          .send({ from: sponsor.address }),
+          .send({ from: sponsor.address, fee }),
       );
 
       if (typeof gateMethods.activate_policy_config === "function") {
         txHashes.activatePolicyConfig = txHashOf(
           await gateMethods
             .activate_policy_config(surveyKey)
-            .send({ from: sponsor.address }),
+            .send({ from: sponsor.address, fee }),
         );
       }
     }
 
-    let rewardVault: RewardVaultMVPContract;
-    if (this.config.sharedRewardVaultAddress) {
-      rewardVault = RewardVaultMVPContract.at(
-        parseAddress(this.config.sharedRewardVaultAddress),
-        connection.wallet,
+    const rewardEnabled =
+      payload.reward.rewardEnabled ? 1 : 0;
+    const rewardPoolAmount =
+      rewardEnabled === 1
+        ? asBigInt(payload.reward.rewardPoolAmount, 0n)
+        : 0n;
+    const claimDeadline =
+      rewardEnabled === 1
+        ? asBigInt(payload.reward.claimDeadline, 9_999_999_999n)
+        : 0n;
+
+    let rewardVault: RewardVaultMVPContract | null = null;
+    let rewardVaultAddress = parseAddress(
+      "0x0000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    if (rewardEnabled === 1) {
+      let configuredRewardVault: RewardVaultMVPContract;
+
+      if (this.config.sharedRewardVaultAddress) {
+        configuredRewardVault = RewardVaultMVPContract.at(
+          parseAddress(this.config.sharedRewardVaultAddress),
+          connection.wallet,
+        );
+      } else {
+        const deploy = await RewardVaultMVPContract.deploy(
+          connection.wallet,
+          sponsor.address,
+        ).send({ from: sponsor.address, fee });
+
+        configuredRewardVault = deploy.contract;
+        txHashes.deployRewardVault = txHashOf(deploy);
+      }
+
+      rewardVault = configuredRewardVault;
+      rewardVaultAddress = configuredRewardVault.address;
+
+      txHashes.registerRewardConfig = txHashOf(
+        await configuredRewardVault.methods
+          .register_reward_config(
+            surveyKey,
+            rewardEnabled,
+            rewardPoolAmount,
+            claimDeadline,
+          )
+          .send({ from: sponsor.address, fee }),
       );
     } else {
-      const deploy = await RewardVaultMVPContract.deploy(
-        connection.wallet,
-        sponsor.address,
-      ).send({ from: sponsor.address });
-      rewardVault = deploy.contract;
-      txHashes.deployRewardVault = txHashOf(deploy);
+      txHashes.deployRewardVault = null;
+      txHashes.registerRewardConfig = null;
     }
-
-    const rewardEnabled = payload.reward.rewardEnabled ? 1 : 0;
-    const rewardPoolAmount = asBigInt(payload.reward.rewardPoolAmount, 0n);
-    const claimDeadline = asBigInt(
-      payload.reward.claimDeadline,
-      9_999_999_999n,
-    );
-
-    txHashes.registerRewardConfig = txHashOf(
-      await rewardVault.methods
-        .register_reward_config(
-          surveyKey,
-          rewardEnabled,
-          rewardPoolAmount,
-          claimDeadline,
-        )
-        .send({ from: sponsor.address }),
-    );
 
     const minimumSampleTarget = asBigInt(
       process.env.MVP_MINIMUM_SAMPLE_TARGET,
@@ -418,7 +583,7 @@ export class AztecSdkChainClient implements MvpChainClient {
       connection.wallet,
       sponsor.address,
       sponsor.address,
-      sponsor.address,
+      systemFinalizerAddress,
       gate.address,
       surveyKey,
       metadataHash,
@@ -432,11 +597,9 @@ export class AztecSdkChainClient implements MvpChainClient {
       analyticsMinTotalSample,
       analyticsMinSegmentSample,
       analyticsVisibilityMode,
-    ).send({ from: sponsor.address });
+    ).send({ from: sponsor.address, fee });
     const dscopeCore = coreDeploy.contract;
     txHashes.deployDscopeCore = txHashOf(coreDeploy);
-
-    const factoryMethods = surveyFactory.methods as any;
 
     const createdAt = asNumber(
       process.env.MVP_FACTORY_CREATED_AT,
@@ -450,16 +613,16 @@ export class AztecSdkChainClient implements MvpChainClient {
             surveyKey,
             dscopeCore.address,
             gate.address,
-            rewardVault.address,
+            rewardVaultAddress,
             policyHash,
             sponsor.address,
             metadataHash,
             startTime,
             endTime,
-            sponsor.address,
+            systemFinalizerAddress,
             createdAt,
           )
-          .send({ from: sponsor.address }),
+          .send({ from: sponsor.address, fee }),
       );
       // Backwards-compatible key used by the existing D1 read-model column.
       txHashes.factoryRegisterSurveyWithKey =
@@ -471,12 +634,12 @@ export class AztecSdkChainClient implements MvpChainClient {
             surveyKey,
             dscopeCore.address,
             gate.address,
-            rewardVault.address,
+            rewardVaultAddress,
             policyHash,
             sponsor.address,
             createdAt,
           )
-          .send({ from: sponsor.address }),
+          .send({ from: sponsor.address, fee }),
       );
     } else {
       throw new Error(
@@ -537,9 +700,15 @@ export class AztecSdkChainClient implements MvpChainClient {
     const { result: coreGate } = await dscopeCore.methods
       .get_participation_gate()
       .simulate({ from: sponsor.address });
-    const { result: rewardStatus } = await rewardVault.methods
-      .get_reward_status(surveyKey)
-      .simulate({ from: sponsor.address });
+    let rewardStatus: unknown = null;
+
+    if (rewardVault !== null) {
+      const rewardStatusResult = await rewardVault.methods
+        .get_reward_status(surveyKey)
+        .simulate({ from: sponsor.address });
+
+      rewardStatus = rewardStatusResult.result;
+    }
 
     return {
       surveyId: payload.surveyId,
@@ -549,7 +718,7 @@ export class AztecSdkChainClient implements MvpChainClient {
         surveyFactoryAddress: surveyFactory.address.toString(),
         dscopeCoreAddress: dscopeCore.address.toString(),
         participationGateAddress: gate.address.toString(),
-        rewardVaultAddress: rewardVault.address.toString(),
+        rewardVaultAddress: rewardVault?.address.toString() ?? null,
       },
       txHashes,
       policy: {
@@ -576,7 +745,8 @@ export class AztecSdkChainClient implements MvpChainClient {
             : stringify(factorySystemFinalizer),
         coreStatus: stringify(coreStatus),
         coreGate: stringify(coreGate),
-        rewardStatus: stringify(rewardStatus),
+        rewardStatus:
+          rewardStatus === null ? null : stringify(rewardStatus),
       },
     };
   }
@@ -590,6 +760,7 @@ export class AztecSdkChainClient implements MvpChainClient {
     });
 
     const operator = findSdkAccount(connection, this.config.defaultFrom);
+    const fee = await createSponsoredFeeOptions(connection);
 
     const surveyKey = asNumber(payload.surveyKey, Date.now());
     const policyHash = asBigInt(payload.policyHash, BigInt(surveyKey + 1000));
@@ -597,7 +768,9 @@ export class AztecSdkChainClient implements MvpChainClient {
     const participationGateAddress = parseAddress(
       payload.participationGateAddress,
     );
-    const rewardVaultAddress = parseAddress(payload.rewardVaultAddress);
+    const rewardVaultAddress = payload.rewardVaultAddress
+      ? parseAddress(payload.rewardVaultAddress)
+      : null;
     const dscopeCoreAddress = parseAddress(payload.dscopeCoreAddress);
 
     await registerDeployedContractInWallet({
@@ -606,12 +779,14 @@ export class AztecSdkChainClient implements MvpChainClient {
       artifact: ParticipationGateV2ContractArtifact,
       label: "ParticipationGateV2",
     });
-    await registerDeployedContractInWallet({
-      connection,
-      address: rewardVaultAddress,
-      artifact: RewardVaultMVPContractArtifact,
-      label: "RewardVaultMVP",
-    });
+    if (rewardVaultAddress !== null) {
+      await registerDeployedContractInWallet({
+        connection,
+        address: rewardVaultAddress,
+        artifact: RewardVaultMVPContractArtifact,
+        label: "RewardVaultMVP",
+      });
+    }
     await registerDeployedContractInWallet({
       connection,
       address: dscopeCoreAddress,
@@ -624,10 +799,10 @@ export class AztecSdkChainClient implements MvpChainClient {
       connection.wallet,
     );
 
-    const rewardVault = RewardVaultMVPContract.at(
-      rewardVaultAddress,
-      connection.wallet,
-    );
+    const rewardVault =
+      rewardVaultAddress === null
+        ? null
+        : RewardVaultMVPContract.at(rewardVaultAddress, connection.wallet);
 
     const dscopeCore = DScopeCoreContract.at(
       dscopeCoreAddress,
@@ -660,11 +835,15 @@ export class AztecSdkChainClient implements MvpChainClient {
     const safeCurrentTime = Math.max(requestedCurrentTime, coreEndTime);
     const finalizedAt = safeCurrentTime;
 
-    const { result: rewardEnabledResult } = await rewardVault.methods
-      .get_reward_enabled(surveyKey)
-      .simulate({ from: operator.address });
+    let rewardEnabled = false;
 
-    const rewardEnabled = stringify(rewardEnabledResult) === "1";
+    if (rewardVault !== null) {
+      const { result: rewardEnabledResult } = await rewardVault.methods
+        .get_reward_enabled(surveyKey)
+        .simulate({ from: operator.address });
+
+      rewardEnabled = stringify(rewardEnabledResult) === "1";
+    }
 
     const rewardAccounting = computeRewardMvpAccounting({
       rewardEnabled,
@@ -720,16 +899,20 @@ export class AztecSdkChainClient implements MvpChainClient {
 
     const txHashes: Record<string, string | null> = {};
 
-    txHashes.finalizeRewardDistribution = txHashOf(
-      await rewardVault.methods
-        .finalize_reward_distribution(
-          surveyKey,
-          BigInt(contractArgs.finalParticipantCount),
-          BigInt(contractArgs.distributionHash),
-          BigInt(contractArgs.finalizedAt),
-        )
-        .send({ from: operator.address }),
-    );
+    txHashes.finalizeRewardDistribution = null;
+
+    if (rewardVault !== null) {
+      txHashes.finalizeRewardDistribution = txHashOf(
+        await rewardVault.methods
+          .finalize_reward_distribution(
+            surveyKey,
+            BigInt(contractArgs.finalParticipantCount),
+            BigInt(contractArgs.distributionHash),
+            BigInt(contractArgs.finalizedAt),
+          )
+          .send({ from: operator.address, fee }),
+      );
+    }
 
     txHashes.finalizeDscopeCore = txHashOf(
       await dscopeCore.methods
@@ -740,7 +923,7 @@ export class AztecSdkChainClient implements MvpChainClient {
           BigInt(contractArgs.finalizedAt),
           BigInt(contractArgs.currentTime),
         )
-        .send({ from: operator.address }),
+        .send({ from: operator.address, fee }),
     );
 
     const { result: coreStatus } = await dscopeCore.methods
@@ -763,29 +946,33 @@ export class AztecSdkChainClient implements MvpChainClient {
       .get_finalized_at()
       .simulate({ from: operator.address });
 
-    const { result: rewardStatus } = await rewardVault.methods
-      .get_reward_status(surveyKey)
-      .simulate({ from: operator.address });
+    let rewardStatus: unknown = "0";
+    let rewardPerParticipant: unknown = "0";
+    let totalAllocated: unknown = "0";
+    let dustReturnToSponsor: unknown = "0";
+    let rewardDistributionHash: unknown = contractArgs.distributionHash;
+    let rewardFinalizedAt: unknown = String(finalizedAt);
 
-    const { result: rewardPerParticipant } = await rewardVault.methods
-      .get_reward_per_participant(surveyKey)
-      .simulate({ from: operator.address });
-
-    const { result: totalAllocated } = await rewardVault.methods
-      .get_total_allocated(surveyKey)
-      .simulate({ from: operator.address });
-
-    const { result: dustReturnToSponsor } = await rewardVault.methods
-      .get_dust_return_to_sponsor(surveyKey)
-      .simulate({ from: operator.address });
-
-    const { result: rewardDistributionHash } = await rewardVault.methods
-      .get_distribution_hash(surveyKey)
-      .simulate({ from: operator.address });
-
-    const { result: rewardFinalizedAt } = await rewardVault.methods
-      .get_finalized_at(surveyKey)
-      .simulate({ from: operator.address });
+    if (rewardVault !== null) {
+      ({ result: rewardStatus } = await rewardVault.methods
+        .get_reward_status(surveyKey)
+        .simulate({ from: operator.address }));
+      ({ result: rewardPerParticipant } = await rewardVault.methods
+        .get_reward_per_participant(surveyKey)
+        .simulate({ from: operator.address }));
+      ({ result: totalAllocated } = await rewardVault.methods
+        .get_total_allocated(surveyKey)
+        .simulate({ from: operator.address }));
+      ({ result: dustReturnToSponsor } = await rewardVault.methods
+        .get_dust_return_to_sponsor(surveyKey)
+        .simulate({ from: operator.address }));
+      ({ result: rewardDistributionHash } = await rewardVault.methods
+        .get_distribution_hash(surveyKey)
+        .simulate({ from: operator.address }));
+      ({ result: rewardFinalizedAt } = await rewardVault.methods
+        .get_finalized_at(surveyKey)
+        .simulate({ from: operator.address }));
+    }
 
     return {
       surveyId: payload.surveyId,
@@ -794,7 +981,7 @@ export class AztecSdkChainClient implements MvpChainClient {
       contracts: {
         dscopeCoreAddress: payload.dscopeCoreAddress,
         participationGateAddress: payload.participationGateAddress,
-        rewardVaultAddress: payload.rewardVaultAddress,
+        rewardVaultAddress: payload.rewardVaultAddress ?? null,
       },
       txHashes,
       result: {
@@ -802,11 +989,14 @@ export class AztecSdkChainClient implements MvpChainClient {
         distributionHash: contractArgs.distributionHash,
         finalParticipantCount: contractArgs.finalParticipantCount,
         analyticsPayload,
-        rewardPayload: finalizationPayload.rewardDistributionPayload,
+        rewardPayload:
+          rewardVault === null
+            ? null
+            : finalizationPayload.rewardDistributionPayload,
         finalizationPayload,
       },
       reward: {
-        rewardStatus: "FINALIZED",
+        rewardStatus: rewardVault === null ? "DISABLED" : "FINALIZED",
         rewardPerParticipant: stringify(rewardPerParticipant),
         totalAllocated: stringify(totalAllocated),
         dustReturnToSponsor: stringify(dustReturnToSponsor),

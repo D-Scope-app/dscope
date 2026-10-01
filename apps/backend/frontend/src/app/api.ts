@@ -367,12 +367,18 @@ export async function submitMvpResponse(input: {
   surveyId: string;
   participantRef: string;
   answers: Record<string, string | string[]>;
-  participationTxHash?: string;
+  participationTxHash: string;
+  verificationSessionId: string;
+  clientToken: string;
 }) {
   return requestJson<unknown>(
     `/mvp/surveys/${encodeURIComponent(input.surveyId)}/responses`,
     {
       method: "POST",
+      headers: {
+        "x-verification-session-id": input.verificationSessionId,
+        "x-verification-token": input.clientToken,
+      },
       body: JSON.stringify({
         participantRef: input.participantRef,
         answers: input.answers,
@@ -381,7 +387,6 @@ export async function submitMvpResponse(input: {
     },
   );
 }
-
 export async function publishMvpPublicReport(surveyId: string) {
   return requestJson<{
     ok: true;
