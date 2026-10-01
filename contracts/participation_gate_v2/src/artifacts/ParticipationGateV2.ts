@@ -18,16 +18,16 @@ export const ParticipationGateV2ContractArtifact = loadContractArtifact(Particip
  * Type-safe interface for contract ParticipationGateV2;
  */
 export class ParticipationGateV2Contract extends ContractBase {
-  
+
   private constructor(
     address: AztecAddress,
     wallet: Wallet,
   ) {
     super(address, ParticipationGateV2ContractArtifact, wallet);
   }
-  
 
-  
+
+
   /**
    * Creates a contract instance.
    * @param address - The deployed contract's address.
@@ -41,7 +41,7 @@ export class ParticipationGateV2Contract extends ContractBase {
     return Contract.at(address, ParticipationGateV2Contract.artifact, wallet) as ParticipationGateV2Contract;
   }
 
-  
+
   /**
    * Creates a tx to deploy a new instance of this contract.
    * @param instantiation - Optional address-affecting parameters (salt, deployer / universalDeploy, publicKeys).
@@ -77,9 +77,9 @@ export class ParticipationGateV2Contract extends ContractBase {
       opts.instantiation,
     );
   }
-  
 
-  
+
+
   /**
    * Returns this contract's artifact.
    */
@@ -93,7 +93,7 @@ export class ParticipationGateV2Contract extends ContractBase {
   public static get artifactForPublic(): ContractArtifact {
     return loadContractArtifactForPublic(ParticipationGateV2ContractArtifactJson as NoirCompiledContract);
   }
-  
+
 
   public static get storage(): ContractStorageLayout<'issuer' | 'credentials' | 'participation_receipts' | 'participation_consumptions' | 'survey_participation_count' | 'survey_policy_hash_by_key' | 'survey_age_mode_by_key' | 'survey_age_mask_by_key' | 'survey_country_mode_by_key' | 'survey_country_bitmap_by_key' | 'survey_start_time_by_key' | 'survey_end_time_by_key' | 'survey_policy_configured_by_key'> {
       return {
@@ -138,11 +138,11 @@ survey_policy_configured_by_key: {
     }
       } as ContractStorageLayout<'issuer' | 'credentials' | 'participation_receipts' | 'participation_consumptions' | 'survey_participation_count' | 'survey_policy_hash_by_key' | 'survey_age_mode_by_key' | 'survey_age_mask_by_key' | 'survey_country_mode_by_key' | 'survey_country_bitmap_by_key' | 'survey_start_time_by_key' | 'survey_end_time_by_key' | 'survey_policy_configured_by_key'>;
     }
-    
+
 
   /** Type-safe wrappers for the public methods exposed by the contract. */
   public declare methods: {
-    
+
     /** activate_policy_config(survey_key: field) */
     activate_policy_config: ((survey_key: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
@@ -228,5 +228,5 @@ survey_policy_configured_by_key: {
     sync_state: ((scope: AztecAddressLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
   };
 
-  
+
 }

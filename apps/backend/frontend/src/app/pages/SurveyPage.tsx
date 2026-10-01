@@ -4,7 +4,6 @@ import { ZKPassportQRCode } from "@zkpassport/ui/react";
 import {
   createVerificationSession,
   getVerificationSessionStatus,
-  getParticipantView,
   submitZkPassportProofs,
   submitMvpResponse,
 } from "../api";
@@ -235,6 +234,9 @@ export function SurveyPage({
     [survey.id, survey.surveyKey, participantRef, credentialRecipient],
   );
 
+  const verificationSessionRef =
+    useRef<TrustedVerificationSession | null>(null);
+
   const effectiveCredentialIssue =
     credentialIssue ?? participantView?.credentialIssue ?? null;
   const participationPlan = participantView?.participationPlan ?? null;
@@ -265,54 +267,75 @@ export function SurveyPage({
   const requiredAnswersComplete = missingRequiredAnswers === 0;
   const canProceedToSign = canAnswerSurvey && requiredAnswersComplete;
 
+
   async function waitForCredentialReadiness() {
-    if (survey.source !== "backend" || !participantRef) return;
+    const activeSession = verificationSessionRef.current;
+
+    if (!activeSession) {
+      setMessage(
+        "Verification session is unavailable. Please restart verification.",
+      );
+      return;
+    }
 
     setBusy(true);
-    let latestView: ParticipantViewResponse | null = null;
-    try {
-      for (let attempt = 0; attempt < 24; attempt += 1) {
-        if (attempt > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 2500));
-        }
 
-        const view = await getParticipantView({
-          surveyId: survey.id,
-          participantRef,
+    try {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const result = await getVerificationSessionStatus({
+          sessionId: activeSession.id,
+          clientToken: activeSession.clientToken,
         });
 
-        latestView = view;
-        setParticipantView(view);
-
-        if (view.credentialIssue) {
-          setCredentialIssue(view.credentialIssue);
+        const eligible = result.policyDecision?.eligible !== false;
+        if (!eligible) {
+          setVerified(false);
+          setCredentialIssue(result.credentialIssue ?? null);
+          setMessage(
+            result.policyDecision?.reasonCode ||
+              "This wallet is not eligible for the selected survey",
+          );
+          setStep("verify");
+          return;
         }
 
-        if (view.participationPlan?.nextAction === "wallet_participate") {
-          setVerified(true);
+        const nextCredentialIssue = result.credentialIssue ?? null;
+
+        setVerified(true);
+        setCredentialIssue(nextCredentialIssue);
+
+        if (nextCredentialIssue?.status === "issued") {
           setMessage(
-            "Aztec credential is ready. You can answer the survey now.",
+            `Eligibility verified and Aztec credential issued: ${shortHash(
+              nextCredentialIssue.txHash,
+            )}`,
           );
           setStep("respond");
           return;
         }
 
-        if (view.participationPlan?.nextAction === "already_participated") {
-          setVerified(true);
-          setMessage("This wallet has already participated in this survey.");
-          setStep("confirmed");
+        if (nextCredentialIssue?.status === "failed") {
+          setMessage(
+            `Eligibility verified, but credential issuance failed: ${nextCredentialIssue.reason ?? "unknown error"}`,
+          );
+          setStep("verify");
           return;
         }
 
-        if (view.credentialIssue?.status === "failed") {
-          setMessage(
-            `Credential issuance failed: ${view.credentialIssue.reason ?? "unknown error"}`,
-          );
-          return;
+        setMessage(
+          `Eligibility verified. Issuing Aztec credential${nextCredentialIssue?.jobId ? ` (${shortHash(nextCredentialIssue.jobId)})` : ""}…`,
+        );
+
+        if (attempt < 59) {
+          await new Promise<void>((resolve) => {
+            window.setTimeout(resolve, 2_000);
+          });
         }
       }
 
-      setMessage(credentialQueueMessage(latestView?.systemStatus ?? null));
+      setMessage(
+        "Eligibility is verified, but credential issuance is taking longer than expected.",
+      );
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -326,7 +349,9 @@ export function SurveyPage({
 
   function applyVerificationResult(
     result: CompleteVerificationSessionResponse,
+    activeSession: TrustedVerificationSession,
   ) {
+    verificationSessionRef.current = activeSession;
     const eligible = result.policyDecision?.eligible !== false;
     if (!eligible) {
       throw new Error(
@@ -382,6 +407,7 @@ export function SurveyPage({
   }
 
   async function submitResponse() {
+    console.info("[D-Scope] submitResponse state", { alreadyParticipated, surveyOpen, hasParticipantRef: Boolean(participantRef), credentialReady, verified, requiredAnswersComplete, participationPaused, surveySource: survey.source, hasSession: Boolean(verificationSessionRef.current), walletSource: wallet.source });
     if (alreadyParticipated) {
       setMessage("This wallet has already participated in this survey.");
       setStep("confirmed");
@@ -433,43 +459,67 @@ export function SurveyPage({
 
     try {
       if (survey.source === "backend") {
-        let participationTxHash = `frontend_local_participation_${survey.surveyKey}_${Date.now()}`;
+        const activeSession = verificationSessionRef.current;
 
-        if (participationPlan?.contractCall) {
-          if (wallet.source !== "azguard") {
-            throw new Error(
-              "Connect Azguard wallet to record on-chain participation for this survey.",
-            );
-          }
-
-          setMessage("Opening Azguard participation transaction…");
-
-          console.info(
-            "[D-Scope] participation contract call",
-            participationPlan.contractCall,
+        if (!activeSession) {
+          throw new Error(
+            "Verification session is unavailable. Restart verification.",
           );
+        }
 
-          participationTxHash = await sendAzguardParticipationTransaction({
-            participationPlan,
+        const latestVerification = await getVerificationSessionStatus({
+          sessionId: activeSession.id,
+          clientToken: activeSession.clientToken,
+        });
+
+        const latestParticipationPlan = (latestVerification as
+          CompleteVerificationSessionResponse & {
+            participationPlan?: ParticipationPlan | null;
+          }).participationPlan ?? null;
+
+        const activeParticipationPlan =
+          latestParticipationPlan ?? participationPlan;
+        const latestCredentialIssue =
+          latestVerification.credentialIssue ?? credentialIssue;
+
+        setCredentialIssue(latestCredentialIssue ?? null);
+
+        if (latestCredentialIssue?.status !== "issued") {
+          throw new Error(
+            "Aztec eligibility credential is not issued yet.",
+          );
+        }
+
+        if (!activeParticipationPlan?.contractCall) {
+          throw new Error(
+            "Server did not return an Aztec participation call. Refresh eligibility status.",
+          );
+        }
+
+        if (wallet.source !== "azguard") {
+          throw new Error(
+            "Connect Azguard wallet to record on-chain participation.",
+          );
+        }
+
+        setMessage("Opening Azguard participation transaction…");
+
+        const participationTxHash =
+          await sendAzguardParticipationTransaction({
+            participationPlan: activeParticipationPlan,
             participantAddress: wallet.accountAddress ?? participantRef,
           });
-        }
 
         await submitMvpResponse({
           surveyId: survey.id,
           participantRef,
           answers,
           participationTxHash,
+          verificationSessionId: activeSession.id,
+          clientToken: activeSession.clientToken,
         });
 
-        const view = await getParticipantView({
-          surveyId: survey.id,
-          participantRef,
-        });
-
-        setParticipantView(view);
       }
-
       setStep("confirmed");
     } catch (error) {
       setMessage(
@@ -480,19 +530,6 @@ export function SurveyPage({
     }
   }
 
-  async function refreshParticipantView() {
-    if (survey.source !== "backend" || !participantRef) return;
-    setBusy(true);
-    try {
-      const view = await getParticipantView({
-        surveyId: survey.id,
-        participantRef,
-      });
-      setParticipantView(view);
-    } finally {
-      setBusy(false);
-    }
-  }
 
   function requestStep(nextStep: SurveyStep) {
     if (nextStep === "overview") {
@@ -647,8 +684,6 @@ export function SurveyPage({
         {step === "confirmed" && (
           <ConfirmationPanel
             participantView={participantView}
-            busy={busy}
-            onRefresh={refreshParticipantView}
             onResults={() => setScreen("results")}
           />
         )}
@@ -1027,7 +1062,10 @@ function VerifyEligibilityPanel({
   policySummary: EligibilityPolicySummary;
   credentialIssue: CredentialIssueResult | null;
   systemStatus: ParticipantSystemStatus | null;
-  onVerified: (result: CompleteVerificationSessionResponse) => void;
+  onVerified: (
+    result: CompleteVerificationSessionResponse,
+    activeSession: TrustedVerificationSession,
+  ) => void;
   setMessage: (message: string | null) => void;
 }) {
   const [zkStatus, setZkStatus] = useState<
@@ -1096,7 +1134,7 @@ function VerifyEligibilityPanel({
 
       if (status === "verified") {
         setZkStatus("completed");
-        onVerified(result);
+        onVerified(result, active);
         return;
       }
       if (status === "failed" || status === "expired") {
@@ -1438,8 +1476,6 @@ function SignParticipationPanel({
     participationPlan?.nextAction === "wallet_participate" ||
     credentialIssue?.status === "issued";
   const participationPaused = pauseStatus?.paused === true;
-  const canRecordParticipation =
-    !alreadyParticipated && answersReady && walletReady && !participationPaused;
 
   return (
     <div className="content-stack">
@@ -1520,7 +1556,7 @@ function SignParticipationPanel({
         className="primary-btn"
         type="button"
         onClick={onSubmit}
-        disabled={busy || !canRecordParticipation}
+        disabled={busy}
       >
         {busy
           ? "Submitting…"
@@ -1530,7 +1566,7 @@ function SignParticipationPanel({
               ? "Participation paused"
               : !answersReady
                 ? "Answer required questions first"
-                : canRecordParticipation
+                : walletReady
                   ? "Confirm with wallet"
                   : "Waiting for eligibility credential"}
       </button>
@@ -1540,13 +1576,9 @@ function SignParticipationPanel({
 
 function ConfirmationPanel({
   participantView,
-  busy,
-  onRefresh,
   onResults,
 }: {
   participantView: ParticipantViewResponse | null;
-  busy: boolean;
-  onRefresh: () => void;
   onResults: () => void;
 }) {
   return (
@@ -1574,14 +1606,6 @@ function ConfirmationPanel({
         <Metric label="Privacy" value="aggregate results" />
       </div>
       <div className="action-row">
-        <button
-          className="secondary-btn"
-          type="button"
-          onClick={onRefresh}
-          disabled={busy}
-        >
-          {busy ? "Refreshing…" : "Refresh participant view"}
-        </button>
         <button className="primary-btn" type="button" onClick={onResults}>
           Open results
         </button>

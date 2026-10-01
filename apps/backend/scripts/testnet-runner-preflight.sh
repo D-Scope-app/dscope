@@ -62,8 +62,9 @@ export TOKEN INTERNAL_RUNNER_TOKEN
 AZTEC_VERSION="$(aztec --version 2>/dev/null | tail -n1 | tr -d '\r')"
 WALLET_VERSION="$(aztec-wallet --version 2>/dev/null | tail -n1 | tr -d '\r')"
 
-[[ "$AZTEC_VERSION" == *"5.1.0"* ]] || fail "unexpected aztec version: $AZTEC_VERSION"
-[[ "$WALLET_VERSION" == *"5.1.0"* ]] || fail "unexpected aztec-wallet version: $WALLET_VERSION"
+EXPECTED_AZTEC_VERSION="${EXPECTED_AZTEC_VERSION:-5.2.0}"
+[[ "$AZTEC_VERSION" == *"$EXPECTED_AZTEC_VERSION"* ]] || fail "unexpected aztec version: $AZTEC_VERSION (expected $EXPECTED_AZTEC_VERSION)"
+[[ "$WALLET_VERSION" == *"$EXPECTED_AZTEC_VERSION"* ]] || fail "unexpected aztec-wallet version: $WALLET_VERSION (expected $EXPECTED_AZTEC_VERSION)"
 
 curl -4 -sS -m 15 -I "$NODE_URL" >/dev/null || fail "Aztec RPC not reachable over IPv4"
 curl -4 -fsS -m 15 "$API/mvp/surveys?status=all&limit=1" >/dev/null || fail "D-Scope API not reachable"

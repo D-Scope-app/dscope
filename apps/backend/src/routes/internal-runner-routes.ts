@@ -222,7 +222,7 @@ async function handleInternalCredentialIssuerRoutes(
       credential?: unknown;
       normalized?: unknown;
       issuerResponse?: unknown;
-    }>();
+    }>(request);
 
     const txHash = extractCredentialIssueTxHash(body);
 
@@ -290,7 +290,7 @@ async function handleInternalCredentialIssuerRoutes(
     const body = await readJsonBody<{
       error?: string;
       issuerResponse?: unknown;
-    }>();
+    }>(request);
 
     const now = new Date().toISOString();
 

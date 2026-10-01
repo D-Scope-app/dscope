@@ -17,10 +17,12 @@ pub contract ParticipationGateV2 {
         },
         messages::delivery::MessageDelivery,
         note::{
-            note_getter_options::NoteGetterOptions,
+            note_getter_options::{NoteGetterOptions, SortOrder},
+            note_interface::NoteProperties,
             note_viewer_options::NoteViewerOptions,
         },
         protocol::address::AztecAddress,
+        utils::comparison::Comparator,
         state_vars::{Map, Owned, PrivateSet, PublicImmutable, PublicMutable},
     };
 
@@ -352,25 +354,40 @@ pub contract ParticipationGateV2 {
             "policy hash mismatch",
         );
 
-        let credential_notes = self.storage
-            .credentials
-            .at(participant)
-            .get_notes(NoteGetterOptions::new());
-
-        assert(credential_notes.len() > 0, "no credential found");
-
-        let credential_note = credential_notes.get_unchecked(0).note;
-
         // The caller-supplied current_time is retained only as receipt metadata.
         // It is never trusted for authorization. The credential must cover the
         // full immutable survey window, while the enqueued public call below
         // checks the live block timestamp at transaction execution.
         let survey_end_time = self.storage.survey_end_time_by_key.at(survey_key).read();
         assert(survey_end_time > 0, "survey window is not registered");
+
+        // A participant can hold multiple reusable CredentialNotes in the shared
+        // gate. Never rely on the implicit order returned by get_notes().
+        // Select only credentials that cover the full survey window and prefer
+        // the one with the longest remaining validity.
+        let credential_options = NoteGetterOptions::new()
+            .select(
+                CredentialNote::properties().valid_until,
+                Comparator.GTE,
+                survey_end_time,
+            )
+            .sort(
+                CredentialNote::properties().valid_until,
+                SortOrder.DESC,
+            )
+            .set_limit(1);
+
+        let credential_notes = self.storage
+            .credentials
+            .at(participant)
+            .get_notes(credential_options);
+
         assert(
-            credential_note.valid_until >= survey_end_time,
-            "credential expires before survey ends",
+            credential_notes.len() > 0,
+            "no credential valid through survey end",
         );
+
+        let credential_note = credential_notes.get_unchecked(0).note;
 
         let age_mode = self.storage.survey_age_mode_by_key.at(survey_key).read();
         let age_mask = self.storage.survey_age_mask_by_key.at(survey_key).read();

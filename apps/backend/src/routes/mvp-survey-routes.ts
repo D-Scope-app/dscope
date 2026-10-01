@@ -1,3 +1,7 @@
+import {
+  hashVerificationClientToken as hashResponseVerificationToken,
+  safeStringEqual as responseSafeStringEqual,
+} from "../domain/verification/trusted-zkpassport";
 import { D1MvpRunnerStore } from "../domain/runner/d1-mvp-runner-store";
 import type { D1DatabaseLike } from "../domain/runner/d1-mvp-runner-store";
 import type { SurveyPolicyV1 } from "../domain/policy/types";
@@ -1516,6 +1520,7 @@ async function listMvpSurveys(db: D1DatabaseLike, url: URL): Promise<Response> {
   const status = normalizeListStatusFilter(url.searchParams.get("status"));
   const limit = normalizeListLimit(url.searchParams.get("limit"));
   const offset = normalizeListOffset(url.searchParams.get("offset"));
+  const nowSeconds = Math.floor(Date.now() / 1000);
 
   const rows = await getAll<MvpSurveyListRow>(
     db,
@@ -1562,7 +1567,29 @@ async function listMvpSurveys(db: D1DatabaseLike, url: URL): Promise<Response> {
       GROUP BY survey_id
     ) p
       ON p.survey_id = s.id
-    WHERE (? = 'all' OR s.status = ? OR (? = 'ended' AND s.status = 'active'))
+    WHERE (
+      ? = 'all'
+      OR (
+        ? = 'active'
+        AND s.status = 'active'
+        AND (
+          legacy.end_time IS NULL
+          OR CAST(legacy.end_time AS INTEGER) <= 0
+          OR CAST(legacy.end_time AS INTEGER) > ?
+        )
+      )
+      OR (
+        ? = 'ended'
+        AND s.status = 'active'
+        AND legacy.end_time IS NOT NULL
+        AND CAST(legacy.end_time AS INTEGER) > 0
+        AND CAST(legacy.end_time AS INTEGER) <= ?
+      )
+      OR (
+        ? NOT IN ('all', 'active', 'ended')
+        AND s.status = ?
+      )
+    )
     ORDER BY
       CASE s.status
         WHEN 'active' THEN 0
@@ -1575,12 +1602,14 @@ async function listMvpSurveys(db: D1DatabaseLike, url: URL): Promise<Response> {
     `,
     status,
     status,
+    nowSeconds,
+    status,
+    nowSeconds,
+    status,
     status,
     limit,
     offset,
   );
-
-  const nowSeconds = Math.floor(Date.now() / 1000);
   const surveys = rows
     .map((row) => {
       const questions = safeParseQuestions(row.metadata_questions_json);
@@ -1875,11 +1904,112 @@ export async function handleMvpSurveyRoutes(
     request.method === "POST" &&
     isPublicParticipationSubmissionPath(url.pathname)
   ) {
-    return errorResponse(
-      503,
-      "server_verification_required",
-      "Public response submission is disabled until zkPassport eligibility is validated server-side",
+    const verificationSessionId =
+      request.headers.get("x-verification-session-id")?.trim() ?? "";
+    const verificationToken =
+      request.headers.get("x-verification-token")?.trim() ?? "";
+
+    if (!verificationSessionId || !verificationToken) {
+      return errorResponse(
+        503,
+        "server_verification_required",
+        "A server-verified zkPassport session is required",
+      );
+    }
+
+    const publicBody = (await request
+      .clone()
+      .json()
+      .catch(() => null)) as Record<string, unknown> | null;
+
+    const participantRef = String(
+      publicBody?.participantRef ?? "",
+    ).trim();
+    const participationTxHash = String(
+      publicBody?.participationTxHash ?? "",
+    ).trim();
+
+    if (!participantRef) {
+      return errorResponse(
+        400,
+        "participant_ref_required",
+        "Participant wallet address is required",
+      );
+    }
+
+    if (!/^0x[a-f0-9]{64}$/i.test(participationTxHash)) {
+      return errorResponse(
+        400,
+        "participation_tx_hash_required",
+        "A valid Aztec participation transaction hash is required",
+      );
+    }
+
+    const verifiedSession = await getFirst<{
+      id: string;
+      client_token_hash: string;
+      subject_hash: string;
+    }>(
+      env.dscope_db,
+      `
+      SELECT id, client_token_hash, subject_hash
+      FROM verification_sessions
+      WHERE id = ? AND survey_id = ? AND wallet_address = ?
+        AND status = 'verified'
+      LIMIT 1
+      `,
+      verificationSessionId,
+      parts[2],
+      participantRef,
     );
+
+    if (!verifiedSession) {
+      return errorResponse(
+        403,
+        "verification_session_mismatch",
+        "Verification session does not match this survey and wallet",
+      );
+    }
+
+    const tokenHash = await hashResponseVerificationToken(
+      verificationToken,
+    );
+
+    if (
+      !responseSafeStringEqual(
+        tokenHash,
+        String(verifiedSession.client_token_hash),
+      )
+    ) {
+      return errorResponse(
+        401,
+        "invalid_verification_token",
+        "Verification token is invalid",
+      );
+    }
+
+    const issuedCredential = await getFirst<{ id: string }>(
+      env.dscope_db,
+      `
+      SELECT id
+      FROM mvp_credential_issue_jobs
+      WHERE survey_id = ? AND wallet_address = ? AND subject_hash = ?
+        AND status = 'issued' AND tx_hash IS NOT NULL
+      ORDER BY updated_at DESC
+      LIMIT 1
+      `,
+      parts[2],
+      participantRef,
+      verifiedSession.subject_hash,
+    );
+
+    if (!issuedCredential) {
+      return errorResponse(
+        409,
+        "credential_not_issued",
+        "Aztec eligibility credential has not been issued",
+      );
+    }
   }
 
   // GET /mvp/surveys?status=active|draft|finalized|cancelled|failed|all&limit=20&offset=0
@@ -2602,7 +2732,7 @@ export async function handleMvpSurveyRoutes(
         dscopeCoreAddress:
           contracts?.dscope_core_address || "0xDSCOPE_CORE_PENDING",
         rewardVaultAddress:
-          contracts?.reward_vault_address || "0xREWARD_VAULT_PENDING",
+          contracts?.reward_vault_address ?? null,
         rewardPoolAmount: "0",
         claimDeadline: "0",
         finalizedAt: String(nowSeconds),

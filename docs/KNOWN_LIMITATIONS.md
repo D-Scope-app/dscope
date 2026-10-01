@@ -1,52 +1,51 @@
 # Known limitations
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-10-02
 
-This document records known limitations of the current testnet implementation. Repository publication must not be interpreted as production readiness.
+This document records known limitations of the current testnet MVP. Repository publication must not be interpreted as production readiness.
 
 ## Release status
 
-- The system is testnet-only.
-- The contracts and backend have not received an independent security audit.
-- A complete end-to-end run with the current Aztec 5.1.0 stack and current Azguard integration remains pending.
-- Production deployment and public participation should not be enabled solely on the basis of the existing smoke tests.
+- The system remains testnet-first and is not independently security audited.
+- The core end-to-end path has been exercised on the current Aztec 5.2-era implementation, but public-beta readiness still depends on deployment configuration, wallet reliability, verifier/runner operation and finalization hardening.
+- Local smoke/build success is not equivalent to production security validation.
 
-## Wallet compatibility
+## Wallet and onboarding UX
 
-Aztec 5.1.0 introduced current HandshakeRegistry authorization requirements.
+The current respondent flow uses AzGuard and Aztec wallet/PXE tooling. This still creates wallet/onboarding friction for non-crypto respondents.
 
-The Azguard integration must be verified against a wallet and PXE release supporting the corresponding registry and `authorizeUtilityCall` behavior.
+Embedded/passkey-style account abstraction is being evaluated but should not be described as part of the current public MVP until implemented and validated.
 
-## Participation timestamp metadata
+## Hybrid / centralized operational components
 
-Survey-window authorization uses the canonical Aztec context timestamp.
+The current MVP includes trusted Cloudflare, D1, runner and issuer/orchestration components. D-Scope should therefore not be described as fully decentralized today.
 
-A legacy caller-provided `current_time` argument remains in the private participation ABI for receipt and consumption-note metadata. It is not authoritative for window authorization, but should be removed or explicitly renamed before the next participation-gate deployment.
-
-## Dependency advisories
-
-The current npm audit reports unresolved high-severity advisories in transitive dependencies, primarily through the Aztec, Azguard and OpenTelemetry dependency trees.
-
-No forced downgrade or incompatible major-version replacement has been applied. Dependency upgrades must preserve compatibility with the selected Aztec protocol version.
-
-## Database deployment state
-
-The complete D1 migration chain has been validated against a clean local database.
-
-Migration `0022_verification_session_rate_limits.sql` still needs to be applied to the intended remote D1 environment before the corresponding production rate-limit path is enabled.
+The long-term direction is progressive decentralization where doing so improves integrity, resilience or censorship resistance without degrading usability.
 
 ## Rewards
 
-Reward distribution is deferred and disabled for the current release.
+Reward distribution is deferred and disabled in the current release. `RewardVaultMVP` is experimental and must not be presented as an active incentive system.
 
-`RewardVaultMVP` remains experimental and should not be described as an active incentive system.
+## Predicate scope
 
-## Frontend bundle size
+The MVP primarily focuses on age and geography-related eligibility predicates. Broader predicates such as gender (where safely supported), on-chain activity, asset/community membership and optional KYC-derived attributes are future work.
 
-The current Aztec and proving dependencies produce large browser bundles. Builds complete successfully, but code splitting and loading performance remain optimization work.
+## Dependency / proving stack risk
 
-## Operational configuration
+D-Scope depends on a rapidly evolving Aztec wallet/proving stack plus third-party wallet and identity dependencies. Protocol or wallet upgrades can require migrations and retesting.
 
-A real deployment still requires reviewed production secrets, verifier configuration, email configuration, runner isolation and Cloudflare environment validation.
+The current `package.json` targets Aztec 5.2.0 while retaining a 5.1 `noir-contracts` compatibility alias for the current SponsoredFPC path. This should be treated as deliberate compatibility debt and revisited during future wallet/fee-stack upgrades.
 
-Environment files, local D1 state, wallet state and generated bundles are intentionally excluded from the repository.
+## Package lock
+
+The authoritative JavaScript lockfile is `apps/backend/package-lock.json`. It is aligned with the current Aztec 5.2 dependency set and should be updated together with `apps/backend/package.json` when dependencies change.
+
+The repository-level `package-lock.json` is intentionally not authoritative.
+
+## Frontend performance
+
+Aztec/proving dependencies produce large browser bundles. Code splitting, loading performance and respondent UX remain optimization areas.
+
+## Deployment configuration
+
+Production/public-beta operation requires reviewed secrets, verifier configuration, runner isolation, Cloudflare configuration, database migrations and operational monitoring. Environment files, local D1 state, wallet state, generated bundles and proof artifacts must remain outside Git.

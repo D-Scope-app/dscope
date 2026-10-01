@@ -1731,18 +1731,40 @@ export async function handleVerificationRoutes(
     const existingNullifier = await env.dscope_db
       .prepare(
         `
-        SELECT verification_session_id
-        FROM trusted_zkpassport_nullifiers
-        WHERE scope = ? AND subject_hash = ?
+        SELECT
+          nullifier.verification_session_id,
+          original_session.wallet_address,
+          original_session.survey_id
+        FROM trusted_zkpassport_nullifiers AS nullifier
+        LEFT JOIN verification_sessions AS original_session
+          ON original_session.id = nullifier.verification_session_id
+        WHERE nullifier.scope = ? AND nullifier.subject_hash = ?
         LIMIT 1
       `,
       )
       .bind(session.expected_scope, normalized.subjectHash)
       .first<any>();
 
+    const sameWalletNullifier = Boolean(
+      existingNullifier &&
+        String(existingNullifier.wallet_address ?? "").toLowerCase() ===
+          String(session.wallet_address ?? "").toLowerCase() &&
+        String(existingNullifier.survey_id ?? "") ===
+          String(session.survey_id ?? ""),
+    );
+
+    const reuseExistingNullifier = Boolean(
+      existingNullifier &&
+        (
+          existingNullifier.verification_session_id === sessionId ||
+          sameWalletNullifier
+        ),
+    );
+
     if (
       existingNullifier &&
-      existingNullifier.verification_session_id !== sessionId
+      existingNullifier.verification_session_id !== sessionId &&
+      !sameWalletNullifier
     ) {
       await env.dscope_db
         .prepare(
@@ -1769,21 +1791,23 @@ export async function handleVerificationRoutes(
 
     try {
       const completionResults = await env.dscope_db.batch([
-        env.dscope_db
-          .prepare(
-            `
-            INSERT INTO trusted_zkpassport_nullifiers (
-              scope, subject_hash, survey_id, verification_session_id, created_at
-            ) VALUES (?, ?, ?, ?, ?)
-          `,
-          )
-          .bind(
-            session.expected_scope,
-            normalized.subjectHash,
-            session.survey_id,
-            sessionId,
-            now,
-          ),
+        reuseExistingNullifier
+          ? env.dscope_db.prepare("SELECT 1 AS reused_nullifier")
+          : env.dscope_db
+              .prepare(
+                `
+                INSERT INTO trusted_zkpassport_nullifiers (
+                  scope, subject_hash, survey_id, verification_session_id, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+              `,
+              )
+              .bind(
+                session.expected_scope,
+                normalized.subjectHash,
+                session.survey_id,
+                sessionId,
+                now,
+              ),
         env.dscope_db
           .prepare(
             `
@@ -1955,7 +1979,7 @@ export async function handleVerificationRoutes(
           verificationSessionId: sessionId,
           walletAddress: session.wallet_address,
           credentialIssue,
-          reused: false,
+          reused: reuseExistingNullifier,
         }),
         now,
       )

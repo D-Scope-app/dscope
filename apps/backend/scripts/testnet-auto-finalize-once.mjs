@@ -61,7 +61,7 @@ function hasFinalizeJob(jobs) {
   return jobs.some((job) => {
     return (
       job?.type === "finalize_survey_mvp" &&
-      ["pending", "running", "done"].includes(String(job?.status || ""))
+      ["pending", "running", "done", "failed"].includes(String(job?.status || ""))
     );
   });
 }
@@ -69,7 +69,20 @@ function hasFinalizeJob(jobs) {
 async function main() {
   const now = Math.floor(Date.now() / 1000);
 
-  const list = await readJson("/mvp/surveys?status=active&limit=100&offset=0");
+  const minEndTimeRaw = process.env.AUTO_FINALIZE_MIN_END_TIME;
+  const minEndTime = Number(minEndTimeRaw);
+  const dryRun = process.env.AUTO_FINALIZE_DRY_RUN === "1";
+
+  if (
+    !minEndTimeRaw ||
+    !Number.isSafeInteger(minEndTime) ||
+    minEndTime <= 0
+  ) {
+    console.warn("[auto-finalize] disabled: valid AUTO_FINALIZE_MIN_END_TIME is required");
+    return;
+  }
+
+  const list = await readJson("/mvp/surveys?status=ended&limit=50&offset=0");
 
   if (!list.res.ok) {
     console.warn("[auto-finalize] list active surveys failed", list.res.status, list.text);
@@ -113,6 +126,16 @@ async function main() {
       continue;
     }
 
+    if (endTime < minEndTime) {
+      console.log(JSON.stringify({
+        autoFinalize: "skip_before_cutoff",
+        surveyId,
+        endTime,
+        minEndTime,
+      }, null, 2));
+      continue;
+    }
+
     if (now < endTime) {
       console.log(JSON.stringify({
         autoFinalize: "skip_not_ended",
@@ -130,6 +153,16 @@ async function main() {
         autoFinalize: "skip_finalize_job_exists",
         surveyId,
         surveyKey: survey?.surveyKey || survey?.survey_key,
+      }, null, 2));
+      continue;
+    }
+
+    if (dryRun) {
+      console.log(JSON.stringify({
+        autoFinalize: "dry_run_candidate",
+        surveyId,
+        surveyKey: survey?.surveyKey || survey?.survey_key,
+        endTime,
       }, null, 2));
       continue;
     }
