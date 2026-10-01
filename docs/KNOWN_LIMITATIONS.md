@@ -1,6 +1,6 @@
 # Known limitations
 
-Last reviewed: 2026-10-01
+Last reviewed: 2026-10-02
 
 This document records known limitations of the current testnet MVP. Repository publication must not be interpreted as production readiness.
 
@@ -38,7 +38,9 @@ The current `package.json` targets Aztec 5.2.0 while retaining a 5.1 `noir-contr
 
 ## Package lock
 
-This cleaned staging snapshot does **not** contain the previous GitHub `apps/backend/package-lock.json`, because that lockfile pins the old Aztec 5.1 dependency set. A current lockfile matching the 5.2 `package.json` must be generated/restored before the repository update is merged.
+The authoritative JavaScript lockfile is `apps/backend/package-lock.json`. It is aligned with the current Aztec 5.2 dependency set and should be updated together with `apps/backend/package.json` when dependencies change.
+
+The repository-level `package-lock.json` is intentionally not authoritative.
 
 ## Frontend performance
 

@@ -86,7 +86,7 @@ This means the current MVP is a **hybrid architecture**, not a fully decentraliz
 | `SurveyFactory` | Survey-instance registration |
 | `RewardVaultMVP` | Experimental reward accounting; currently disabled |
 
-The current Noir dependency line targets Aztec `v5.2.0`. Generated TypeScript bindings required by the frontend and runner are committed; compiler `target/` directories are not.
+The current Noir dependency line targets Aztec `v5.2.0`. Generated TypeScript bindings required by the frontend and runner are committed together with the exact compiled JSON artifacts they import. Other compiler `target/` output remains excluded from Git.
 
 ## Survey lifecycle
 
